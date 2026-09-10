@@ -326,13 +326,19 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     event.preventDefault();
     setAccountBusy(true); setAccountError("");
     try {
-      const response = await billingFetch(`/api/account/${accountMode === "login" ? "login" : "register"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: accountEmail, password: accountPassword }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "账户操作失败");
-      let localResponse = await fetch(`/api/account/${accountMode === "login" ? "login" : "register"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: accountEmail, password: accountPassword }) });
+      const credentials = { email: accountEmail, password: accountPassword };
+      let response = await billingFetch(`/api/account/${accountMode === "login" ? "login" : "register"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(credentials) });
+      let data = await response.json().catch(() => ({}));
+      let localResponse = await fetch(`/api/account/${accountMode === "login" ? "login" : "register"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(credentials) });
       let localData = await localResponse.json().catch(() => ({}));
+      // 兼容旧版：旧账户可能只存在本机。先用本地凭据验证，再自动注册到云端。
+      if (!response.ok && accountMode === "login" && localResponse.ok) {
+        response = await billingFetch("/api/account/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(credentials) });
+        data = await response.json().catch(() => ({}));
+      }
+      if (!response.ok) throw new Error(data.error || "账号或密码不正确");
       if (!localResponse.ok && accountMode === "login") {
-        localResponse = await fetch("/api/account/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: accountEmail, password: accountPassword }) });
+        localResponse = await fetch("/api/account/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(credentials) });
         localData = await localResponse.json().catch(() => ({}));
       }
       if (!localResponse.ok) throw new Error(localData.error || "本地生成服务账户同步失败");
