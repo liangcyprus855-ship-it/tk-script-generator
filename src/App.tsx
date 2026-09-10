@@ -216,6 +216,7 @@ const DURATION_OPTIONS = [
 ];
 
 export default function App({ initialSettings = {} }: { initialSettings?: any }) {
+  const commercialMode = import.meta.env.MODE === "commercial";
   const [mainCategory, setMainCategory] = useState(Object.keys(PRODUCT_CATEGORIES)[0]);
   const [subCategory, setSubCategory] = useState(Object.keys(PRODUCT_CATEGORIES[Object.keys(PRODUCT_CATEGORIES)[0]])[0]);
   const [isCustomProduct, setIsCustomProduct] = useState(false);
@@ -804,10 +805,10 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
                 {updateStatus?.state === "available" ? `更新 ${updateStatus.version || ""}` : updateStatus?.state === "downloading" ? `${updateStatus.percent || 0}%` : updateStatus?.state === "downloaded" ? "安装更新" : `V${desktopVersion || "1.0.0"}`}
               </button>
             )}
-            <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${modelStatus?.ok ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-slate-100 text-slate-600 border-slate-200"}`}>
+            {!commercialMode && <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${modelStatus?.ok ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-slate-100 text-slate-600 border-slate-200"}`}>
               {modelConfig.provider === "ollama" ? "Script · Local Ollama" : `Script · ${getCloudProviderPreset(modelConfig.cloudProviderId).name}` }
               {modelConfig.model ? ` · ${modelConfig.model}` : ""}
-            </span>
+            </span>}
           </div>
         </div>
         {accountOpen && <div className="absolute right-4 top-14 w-80 rounded-xl border border-slate-200 bg-white p-4 shadow-xl z-20">
@@ -831,6 +832,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {!commercialMode && <>
               {/* AI Model Engine */}
               <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-3">
@@ -1129,8 +1131,9 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
                 <button type="button" onClick={testModelConnection} disabled={modelChecking} className="w-full h-9 rounded-lg bg-white border border-slate-200 hover:border-slate-300 text-xs font-medium text-slate-700 flex items-center justify-center gap-2 disabled:opacity-50">
                   {modelChecking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wifi className="w-3.5 h-3.5" />} 测试模型连接
                 </button>
-                {modelStatus && <p className={`text-xs leading-relaxed ${modelStatus.ok ? "text-emerald-700" : "text-rose-600"}`}>{modelStatus.message}</p>}
+              {modelStatus && <p className={`text-xs leading-relaxed ${modelStatus.ok ? "text-emerald-700" : "text-rose-600"}`}>{modelStatus.message}</p>}
               </div>
+              </>}
 
               {/* Target Region */}
               <div className="space-y-2">
