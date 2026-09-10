@@ -72,6 +72,29 @@ test('mock recharge order increases credits exactly once and creates a recharge 
     const ledger = await (await fetch(backend.url + '/api/account/ledger', { headers: auth })).json(); assert.equal(ledger.entries.filter((entry: any) => entry.type === 'recharge').length, 1);
   } finally { await backend.close(); rmSync(root, { recursive: true }); rmSync(dataDir, { recursive: true }); }
 });
+
+test('commercial generation consumes credits on success and refunds them on model failure', async () => {
+  let fail = false;
+  const provider = createServer(async (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url === '/api/show') return res.end(JSON.stringify({ capabilities: ['completion'] }));
+    if (fail) { res.statusCode = 500; return res.end(JSON.stringify({ error: 'mock provider failure' })); }
+    const script = { title: '商业测试', style: 'UGC', hook: '开场', script: [{ timestamp: '0-3s', visual: '展示产品', audio: '开始' }, { timestamp: '3-8s', visual: '演示卖点', audio: '继续' }, { timestamp: '8-10s', visual: '引导购买', audio: '购买' }], cta: '购买' };
+    return res.end(JSON.stringify({ message: { content: JSON.stringify(script) } }));
+  });
+  await new Promise<void>(resolve => provider.listen(0, '127.0.0.1', resolve));
+  const address = provider.address() as any; const oldProvider = process.env.TK_COMMERCIAL_PROVIDER; const oldBase = process.env.TK_COMMERCIAL_BASE_URL;
+  process.env.TK_COMMERCIAL_PROVIDER = 'ollama'; process.env.TK_COMMERCIAL_BASE_URL = `http://127.0.0.1:${address.port}`; process.env.TK_COMMERCIAL_MODEL = 'mock-model';
+  const root = mkdtempSync(path.join(tmpdir(), 'TK 扣费退款 ')); mkdirSync(path.join(root, 'dist')); writeFileSync(path.join(root, 'dist/index.html'), '<html>billing</html>'); const dataDir = mkdtempSync(path.join(tmpdir(), 'TK 扣费数据 ')); const backend = await startServer({ rootDir: root, dataDir, commercialMode: true });
+  try {
+    const headers = { 'Content-Type': 'application/json' }; const registered = await (await fetch(backend.url + '/api/account/register', { method: 'POST', headers, body: JSON.stringify({ email: 'charge@example.com', password: 'strong-pass-123' }) })).json(); const auth = { ...headers, Authorization: `Bearer ${registered.token}` };
+    const request = { product: '杯子', targetAudience: '成人', features: '便携', duration: '10秒', index: 1, billingRef: 'success-1', modelConfig: { provider: 'openai', model: 'client-value', apiKey: 'client-key' } };
+    assert.equal((await fetch(backend.url + '/api/generate-one', { method: 'POST', headers: auth, body: JSON.stringify(request) })).status, 200);
+    let me = await (await fetch(backend.url + '/api/account/me', { headers: auth })).json(); assert.equal(me.user.credits, 98);
+    fail = true; const failed = await fetch(backend.url + '/api/generate-one', { method: 'POST', headers: auth, body: JSON.stringify({ ...request, billingRef: 'failure-1' }) }); assert.equal(failed.status, 500);
+    me = await (await fetch(backend.url + '/api/account/me', { headers: auth })).json(); assert.equal(me.user.credits, 98);
+  } finally { await backend.close(); rmSync(root, { recursive: true }); rmSync(dataDir, { recursive: true }); await new Promise<void>(resolve => provider.close(() => resolve())); if (oldProvider === undefined) delete process.env.TK_COMMERCIAL_PROVIDER; else process.env.TK_COMMERCIAL_PROVIDER = oldProvider; if (oldBase === undefined) delete process.env.TK_COMMERCIAL_BASE_URL; else process.env.TK_COMMERCIAL_BASE_URL = oldBase; delete process.env.TK_COMMERCIAL_MODEL; }
+});
 test('settings survive restart and API keys are encrypted on disk', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'TK 配置 空格 '));
   const encryption = { isEncryptionAvailable: () => true, encryptString: (value: string) => Buffer.from(value.split('').reverse().join('')), decryptString: (value: Buffer) => value.toString().split('').reverse().join('') };

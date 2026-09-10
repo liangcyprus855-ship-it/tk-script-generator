@@ -776,6 +776,9 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
       console.error("Generate failed:", error);
       setGenerationError(explainGenerationFailure(error));
     } finally {
+      if (accountToken) {
+        fetch("/api/account/me", { headers: { Authorization: `Bearer ${accountToken}` } }).then((response) => response.ok ? response.json() : null).then((data) => { if (data?.user) setAccount(data.user); }).catch(() => {});
+      }
       setGenerationStep(0);
       setLoading(false);
     }
