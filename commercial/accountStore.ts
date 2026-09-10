@@ -13,9 +13,10 @@ export type LedgerEntry = {
 };
 
 type Account = { id: string; email: string; passwordHash: string; credits: number; createdAt: string };
-type StoreData = { accounts: Account[]; tokens: Record<string, string>; ledger: Record<string, LedgerEntry[]> };
+export type RechargeOrder = { id: string; userId: string; provider: "wechat" | "alipay" | "mock"; packageId: string; amountFen: number; credits: number; status: "pending" | "paid" | "refunded"; createdAt: string; paidAt?: string };
+type StoreData = { accounts: Account[]; tokens: Record<string, string>; ledger: Record<string, LedgerEntry[]>; orders: RechargeOrder[] };
 
-const EMPTY: StoreData = { accounts: [], tokens: {}, ledger: {} };
+const EMPTY: StoreData = { accounts: [], tokens: {}, ledger: {}, orders: [] };
 
 function hashPassword(password: string, salt = randomBytes(16).toString("hex")) {
   return `${salt}:${scryptSync(password, salt, 32).toString("hex")}`;
@@ -35,7 +36,7 @@ export class AccountStore {
   constructor(dataDir: string) {
     mkdirSync(dataDir, { recursive: true });
     this.file = path.join(dataDir, "commercial-accounts.json");
-    this.data = existsSync(this.file) ? JSON.parse(readFileSync(this.file, "utf8")) : { ...EMPTY };
+    this.data = existsSync(this.file) ? { ...EMPTY, ...JSON.parse(readFileSync(this.file, "utf8")) } : { ...EMPTY };
   }
 
   private persist() {
@@ -95,6 +96,12 @@ export class AccountStore {
     return account.credits;
   }
 
+  consumeOnce(userId: string, amount: number, description: string, reference: string) {
+    const existing = (this.data.ledger[userId] || []).find((entry) => entry.type === "consume" && entry.reference === reference);
+    if (existing) return existing.balance;
+    return this.consume(userId, amount, description, reference);
+  }
+
   refund(userId: string, amount: number, description: string, reference: string) {
     const account = this.data.accounts.find((item) => item.id === userId);
     if (!account) return;
@@ -103,4 +110,37 @@ export class AccountStore {
     this.data.ledger[userId].push({ id: randomUUID(), type: "refund", amount, balance: account.credits, description, reference, createdAt: new Date().toISOString() });
     this.persist();
   }
+
+  createRechargeOrder(userId: string, provider: RechargeOrder["provider"], packageId: string) {
+    const packages: Record<string, { amountFen: number; credits: number }> = {
+      starter: { amountFen: 990, credits: 100 },
+      creator: { amountFen: 3990, credits: 500 },
+      studio: { amountFen: 9990, credits: 1500 },
+    };
+    const pack = packages[packageId];
+    if (!pack) throw Object.assign(new Error("充值套餐不存在"), { status: 400 });
+    if (!["wechat", "alipay", "mock"].includes(provider)) throw Object.assign(new Error("暂不支持该支付方式"), { status: 400 });
+    const order: RechargeOrder = { id: `RC${Date.now()}${randomBytes(4).toString("hex")}`, userId, provider, packageId, ...pack, status: "pending", createdAt: new Date().toISOString() };
+    this.data.orders.push(order); this.persist();
+    return order;
+  }
+
+  markOrderPaid(orderId: string) {
+    const order = this.data.orders.find((item) => item.id === orderId);
+    if (!order) throw Object.assign(new Error("充值订单不存在"), { status: 404 });
+    if (order.status === "paid") return order;
+    if (order.status === "refunded") throw Object.assign(new Error("已退款订单不能到账"), { status: 409 });
+    const account = this.data.accounts.find((item) => item.id === order.userId);
+    if (!account) throw Object.assign(new Error("账号不存在"), { status: 404 });
+    account.credits += order.credits; order.status = "paid"; order.paidAt = new Date().toISOString();
+    this.data.ledger[account.id] ??= [];
+    this.data.ledger[account.id].push({ id: randomUUID(), type: "recharge", amount: order.credits, balance: account.credits, description: `充值到账：${order.packageId}`, reference: order.id, createdAt: order.paidAt });
+    this.persist(); return order;
+  }
+
+  order(userId: string, orderId: string) {
+    return this.data.orders.find((item) => item.id === orderId && item.userId === userId) || null;
+  }
+
+  ordersFor(userId: string) { return this.data.orders.filter((item) => item.userId === userId); }
 }

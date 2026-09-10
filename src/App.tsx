@@ -284,6 +284,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const [accountPassword, setAccountPassword] = useState("");
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState("");
+  const [billingBusy, setBillingBusy] = useState(false);
 
   useEffect(() => {
     if (!window.tkDesktop) return;
@@ -320,6 +321,22 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
       setAccountToken(data.token); setAccount(data.user); setAccountOpen(false); setAccountPassword("");
     } catch (error: any) { setAccountError(error.message || "账户操作失败"); }
     finally { setAccountBusy(false); }
+  };
+
+  const rechargeMock = async (packageId: string) => {
+    if (!accountToken) return;
+    setBillingBusy(true); setAccountError("");
+    try {
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${accountToken}` };
+      const created = await fetch("/api/billing/orders", { method: "POST", headers, body: JSON.stringify({ provider: "mock", packageId }) });
+      const orderData = await created.json();
+      if (!created.ok) throw new Error(orderData.error || "创建充值订单失败");
+      const paid = await fetch(`/api/billing/orders/${orderData.order.id}/mock-pay`, { method: "POST", headers });
+      const paidData = await paid.json();
+      if (!paid.ok) throw new Error(paidData.error || "充值失败");
+      setAccount(paidData.user);
+    } catch (error: any) { setAccountError(error.message || "充值失败"); }
+    finally { setBillingBusy(false); }
   };
 
   useEffect(() => {
@@ -812,7 +829,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
           </div>
         </div>
         {accountOpen && <div className="absolute right-4 top-14 w-80 rounded-xl border border-slate-200 bg-white p-4 shadow-xl z-20">
-          {account ? <div className="space-y-3 text-sm"><div className="font-semibold">账户中心</div><div className="text-slate-600">当前余额：<span className="font-bold text-indigo-600">{account.credits} 积分</span></div><p className="text-xs text-slate-500">充值功能将在接入微信支付/支付宝后开放。</p><button type="button" className="text-xs text-slate-500 underline" onClick={() => { setAccount(null); setAccountToken(""); }}>退出登录</button></div> : <form onSubmit={submitAccount} className="space-y-3"><div className="flex items-center justify-between"><span className="font-semibold">{accountMode === "login" ? "登录账户" : "注册账户"}</span><button type="button" className="text-xs text-indigo-600" onClick={() => { setAccountMode(accountMode === "login" ? "register" : "login"); setAccountError(""); }}>{accountMode === "login" ? "注册新账户" : "返回登录"}</button></div><Input type="email" placeholder="邮箱" value={accountEmail} onChange={(e) => setAccountEmail(e.target.value)} required /><Input type="password" placeholder="至少 8 位密码" value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} minLength={8} required />{accountError && <p className="text-xs text-rose-600">{accountError}</p>}<Button type="submit" className="w-full" disabled={accountBusy}>{accountBusy ? "处理中…" : accountMode === "login" ? "登录" : "注册并领取 100 积分"}</Button></form>}
+          {account ? <div className="space-y-3 text-sm"><div className="font-semibold">账户中心</div><div className="text-slate-600">当前余额：<span className="font-bold text-indigo-600">{account.credits} 积分</span></div><div><div className="text-xs font-medium text-slate-600 mb-2">充值测试</div><div className="grid grid-cols-3 gap-1.5">{[["starter", "100积分"], ["creator", "500积分"], ["studio", "1500积分"]].map(([id, label]) => <button key={id} type="button" disabled={billingBusy} onClick={() => rechargeMock(id)} className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] text-indigo-700 disabled:opacity-50">{label}</button>)}</div><p className="mt-1 text-[10px] text-slate-400">当前为模拟支付；接入微信/支付宝后按钮会跳转真实收银台。</p></div>{accountError && <p className="text-xs text-rose-600">{accountError}</p>}<button type="button" className="text-xs text-slate-500 underline" onClick={() => { setAccount(null); setAccountToken(""); }}>退出登录</button></div> : <form onSubmit={submitAccount} className="space-y-3"><div className="flex items-center justify-between"><span className="font-semibold">{accountMode === "login" ? "登录账户" : "注册账户"}</span><button type="button" className="text-xs text-indigo-600" onClick={() => { setAccountMode(accountMode === "login" ? "register" : "login"); setAccountError(""); }}>{accountMode === "login" ? "注册新账户" : "返回登录"}</button></div><Input type="email" placeholder="邮箱" value={accountEmail} onChange={(e) => setAccountEmail(e.target.value)} required /><Input type="password" placeholder="至少 8 位密码" value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} minLength={8} required />{accountError && <p className="text-xs text-rose-600">{accountError}</p>}<Button type="submit" className="w-full" disabled={accountBusy}>{accountBusy ? "处理中…" : accountMode === "login" ? "登录" : "注册并领取 100 积分"}</Button></form>}
         </div>}
       </header>
 

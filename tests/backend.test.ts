@@ -55,6 +55,23 @@ test('commercial account foundation registers, authenticates, quotes and persist
     assert.equal((await fetch(backend.url + '/api/account/ledger', { headers: { Authorization: `Bearer ${loggedIn.data.token}` } })).status, 200);
   } finally { await backend.close(); rmSync(root, { recursive: true }); rmSync(dataDir, { recursive: true }); }
 });
+
+test('mock recharge order increases credits exactly once and creates a recharge ledger entry', async () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'TK 支付订单 ')); mkdirSync(path.join(root, 'dist')); writeFileSync(path.join(root, 'dist/index.html'), '<html>billing</html>');
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'TK 支付数据 ')); const backend = await startServer({ rootDir: root, dataDir, commercialMode: true });
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    const registeredResponse = await fetch(backend.url + '/api/account/register', { method: 'POST', headers, body: JSON.stringify({ email: 'billing@example.com', password: 'strong-pass-123' }) });
+    const registered = await registeredResponse.json();
+    const auth = { ...headers, Authorization: `Bearer ${registered.token}` };
+    const createdResponse = await fetch(backend.url + '/api/billing/orders', { method: 'POST', headers: auth, body: JSON.stringify({ provider: 'mock', packageId: 'creator' }) });
+    const created = await createdResponse.json(); assert.equal(createdResponse.status, 201); assert.equal(created.order.status, 'pending');
+    const paidResponse = await fetch(backend.url + `/api/billing/orders/${created.order.id}/mock-pay`, { method: 'POST', headers: auth });
+    const paid = await paidResponse.json(); assert.equal(paid.user.credits, 600);
+    const paidAgain = await (await fetch(backend.url + `/api/billing/orders/${created.order.id}/mock-pay`, { method: 'POST', headers: auth })).json(); assert.equal(paidAgain.user.credits, 600);
+    const ledger = await (await fetch(backend.url + '/api/account/ledger', { headers: auth })).json(); assert.equal(ledger.entries.filter((entry: any) => entry.type === 'recharge').length, 1);
+  } finally { await backend.close(); rmSync(root, { recursive: true }); rmSync(dataDir, { recursive: true }); }
+});
 test('settings survive restart and API keys are encrypted on disk', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'TK 配置 空格 '));
   const encryption = { isEncryptionAvailable: () => true, encryptString: (value: string) => Buffer.from(value.split('').reverse().join('')), decryptString: (value: Buffer) => value.toString().split('').reverse().join('') };

@@ -3,6 +3,7 @@ import express from "express";
 import path from "path";
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { GoogleGenAI, Type } from "@google/genai";
 import { ModelConfig, ScriptRequest, OllamaModelInfo, CloudModelInfo, ProductVisualFacts } from "./src/types";
 import { getCloudProviderPreset } from "./src/cloudProviders";
@@ -1390,6 +1391,21 @@ export async function startServer(options: { port?: number; development?: boolea
     cloudProviderId: process.env.TK_COMMERCIAL_CLOUD_PROVIDER || "openai",
     inputMode: process.env.TK_COMMERCIAL_INPUT_MODE === "multimodal" ? "multimodal" : "text",
   } : requested;
+  const authenticatedUser = (req: express.Request) => accountStore.authenticate(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+  const requireCommercialUser = (req: express.Request) => {
+    if (!commercialMode) return null;
+    const user = authenticatedUser(req);
+    if (!user) throw Object.assign(new Error("请先登录账户"), { status: 401 });
+    return user;
+  };
+  const chargeGeneration = (req: express.Request, duration: string, reference: string, split = 1) => {
+    const user = requireCommercialUser(req);
+    if (!user) return null;
+    const total = accountStore.quote(duration).credits;
+    const amount = Math.ceil(total / split);
+    accountStore.consumeOnce(user.id, amount, `生成${duration}脚本`, reference);
+    return { userId: user.id, amount, reference };
+  };
   app.use(express.json({ limit: "50mb" }));
   app.get("/api/health", (_req, res) => res.json({ ok: true, version: "1.0.3" }));
 
@@ -1414,6 +1430,35 @@ export async function startServer(options: { port?: number; development?: boolea
   app.post("/api/billing/quote", (req, res) => {
     try { return res.json(accountStore.quote(String(req.body?.duration || ""))); }
     catch (error: any) { return res.status(error.status || 500).json({ error: error.message }); }
+  });
+  app.get("/api/billing/orders", (req, res) => {
+    const user = authenticatedUser(req);
+    return user ? res.json({ orders: accountStore.ordersFor(user.id) }) : res.status(401).json({ error: "请先登录" });
+  });
+  app.post("/api/billing/orders", (req, res) => {
+    try {
+      const user = authenticatedUser(req); if (!user) return res.status(401).json({ error: "请先登录" });
+      const provider = String(req.body?.provider || "mock") as "wechat" | "alipay" | "mock";
+      const order = accountStore.createRechargeOrder(user.id, provider, String(req.body?.packageId || ""));
+      return res.status(201).json({ order, payment: provider === "mock" ? { mode: "mock", action: `/api/billing/orders/${order.id}/mock-pay` } : { mode: "pending", message: "真实支付参数将在配置商户号后生成" } });
+    } catch (error: any) { return res.status(error.status || 500).json({ error: error.message }); }
+  });
+  app.post("/api/billing/orders/:orderId/mock-pay", (req, res) => {
+    try {
+      const user = authenticatedUser(req); if (!user) return res.status(401).json({ error: "请先登录" });
+      const order = accountStore.order(user.id, req.params.orderId); if (!order) return res.status(404).json({ error: "充值订单不存在" });
+      if (order.provider !== "mock") return res.status(400).json({ error: "该订单需要真实支付回调" });
+      return res.json({ order: accountStore.markOrderPaid(order.id), user: accountStore.authenticate(String(req.headers.authorization || "").replace(/^Bearer\s+/i, "")) });
+    } catch (error: any) { return res.status(error.status || 500).json({ error: error.message }); }
+  });
+  app.post("/api/billing/webhook/:provider", (req, res) => {
+    try {
+      const provider = String(req.params.provider);
+      if (provider !== "wechat" && provider !== "alipay") return res.status(400).json({ error: "不支持的支付渠道" });
+      if (process.env.PAYMENT_WEBHOOK_SECRET && req.headers["x-payment-webhook-secret"] !== process.env.PAYMENT_WEBHOOK_SECRET) return res.status(401).json({ error: "支付回调签名无效" });
+      const order = accountStore.markOrderPaid(String(req.body?.orderId || ""));
+      return res.json({ ok: true, orderId: order.id, status: order.status });
+    } catch (error: any) { return res.status(error.status || 500).json({ error: error.message }); }
   });
 
   app.get("/api/models", async (req, res) => {
@@ -1496,8 +1541,9 @@ export async function startServer(options: { port?: number; development?: boolea
   });
 
   app.post("/api/generate-one", async (req, res) => {
+    let charge: { userId: string; amount: number; reference: string } | null = null;
     try {
-      const body = req.body as ScriptRequest & { index?: number; style?: string };
+      const body = req.body as ScriptRequest & { index?: number; style?: string; billingRef?: string };
       const { product, targetAudience, features, duration } = body;
       if (!product || !targetAudience || !features || !duration) return res.status(400).json({ error: "请填写完整的产品、受众、卖点与时长" });
       const config: ModelConfig = resolveModelConfig(body.modelConfig || { provider: "ollama", baseUrl: "http://127.0.0.1:11434", model: "" });
@@ -1505,10 +1551,12 @@ export async function startServer(options: { port?: number; development?: boolea
       const index = Math.min(3, Math.max(1, Number(body.index || 1)));
       const styles = ["UGC 真实评测", "POV 第一视角", "Viral Demo 强视觉演示"];
       const style = String(body.style || styles[index - 1]);
+      charge = chargeGeneration(req, duration, `${String(body.billingRef || crypto.randomUUID())}:script:${index}`, 3);
       const prompt = buildPrompt(body);
       const [script] = await generateTimed(duration, async correction => [await generateOneWithOllama(config, prompt + correction, body.visualFacts ? undefined : body.image, index, style, duration)]);
       return res.json({ script, index, total: 3, model: { provider: config.provider, model: config.model } });
     } catch (error: any) {
+      if (charge) accountStore.refund(charge.userId, charge.amount, "脚本生成失败，积分已退回", charge.reference);
       console.error("Error generating one Ollama script:", error);
       const config = (req.body?.modelConfig || { provider: "ollama", model: "" }) as ModelConfig;
       const explained = explainModelServiceError(error, config);
@@ -1517,8 +1565,9 @@ export async function startServer(options: { port?: number; development?: boolea
   });
 
   app.post("/api/generate", async (req, res) => {
+    let charge: { userId: string; amount: number; reference: string } | null = null;
     try {
-      const body = req.body as ScriptRequest;
+      const body = req.body as ScriptRequest & { billingRef?: string };
       const { product, targetAudience, features, duration } = body;
       if (!product || !targetAudience || !features || !duration) return res.status(400).json({ error: "请填写完整的产品、受众、卖点与时长" });
       const config: ModelConfig = resolveModelConfig(body.modelConfig || {
@@ -1526,6 +1575,7 @@ export async function startServer(options: { port?: number; development?: boolea
         baseUrl: "http://127.0.0.1:11434",
         model: ""
       });
+      charge = chargeGeneration(req, duration, String(body.billingRef || crypto.randomUUID()));
       const prompt = buildPrompt(body);
       const generationImage = body.visualFacts ? undefined : body.image;
       const scripts = await generateTimed(duration, async correction => {
@@ -1538,6 +1588,7 @@ export async function startServer(options: { port?: number; development?: boolea
       });
       res.json({ scripts: scripts.slice(0, 3), model: { provider: config.provider, model: config.model } });
     } catch (error: any) {
+      if (charge) accountStore.refund(charge.userId, charge.amount, "脚本生成失败，积分已退回", charge.reference);
       console.error("Error generating scripts:", error);
       const config = (req.body?.modelConfig || { provider: "openai", model: "" }) as ModelConfig;
       const explained = explainModelServiceError(error, config);
