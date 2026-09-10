@@ -13,7 +13,7 @@ export type LedgerEntry = {
 };
 
 type Account = { id: string; email: string; passwordHash: string; credits: number; createdAt: string };
-export type RechargeOrder = { id: string; userId: string; provider: "wechat" | "alipay" | "mock"; packageId: string; amountFen: number; credits: number; status: "pending" | "paid" | "refunded"; createdAt: string; paidAt?: string };
+export type RechargeOrder = { id: string; userId: string; provider: "wechat" | "alipay" | "alipay_personal" | "mock"; packageId: string; amountFen: number; credits: number; status: "pending" | "paid" | "refunded"; createdAt: string; paidAt?: string; proofNote?: string; proofSubmittedAt?: string };
 type StoreData = { accounts: Account[]; tokens: Record<string, string>; ledger: Record<string, LedgerEntry[]>; orders: RechargeOrder[] };
 
 const EMPTY: StoreData = { accounts: [], tokens: {}, ledger: {}, orders: [] };
@@ -119,7 +119,7 @@ export class AccountStore {
     };
     const pack = packages[packageId];
     if (!pack) throw Object.assign(new Error("充值套餐不存在"), { status: 400 });
-    if (!["wechat", "alipay", "mock"].includes(provider)) throw Object.assign(new Error("暂不支持该支付方式"), { status: 400 });
+    if (!["wechat", "alipay", "alipay_personal", "mock"].includes(provider)) throw Object.assign(new Error("暂不支持该支付方式"), { status: 400 });
     const order: RechargeOrder = { id: `RC${Date.now()}${randomBytes(4).toString("hex")}`, userId, provider, packageId, ...pack, status: "pending", createdAt: new Date().toISOString() };
     this.data.orders.push(order); this.persist();
     return order;
@@ -138,8 +138,22 @@ export class AccountStore {
     this.persist(); return order;
   }
 
+  submitPaymentProof(orderId: string, userId: string, proofNote: string) {
+    const order = this.data.orders.find((item) => item.id === orderId && item.userId === userId);
+    if (!order) throw Object.assign(new Error("充值订单不存在"), { status: 404 });
+    if (order.status !== "pending") throw Object.assign(new Error("该订单已处理"), { status: 400 });
+    order.proofNote = proofNote.trim().slice(0, 500);
+    order.proofSubmittedAt = new Date().toISOString();
+    this.persist();
+    return order;
+  }
+
   order(userId: string, orderId: string) {
     return this.data.orders.find((item) => item.id === orderId && item.userId === userId) || null;
+  }
+
+  orderById(orderId: string) {
+    return this.data.orders.find((item) => item.id === orderId) || null;
   }
 
   ordersFor(userId: string) { return this.data.orders.filter((item) => item.userId === userId); }

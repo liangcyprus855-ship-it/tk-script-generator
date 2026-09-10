@@ -285,6 +285,8 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState("");
   const [billingBusy, setBillingBusy] = useState(false);
+  const [manualRecharge, setManualRecharge] = useState<{ orderId: string; amountFen: number; credits: number } | null>(null);
+  const [manualProofNote, setManualProofNote] = useState("");
 
   useEffect(() => {
     if (!window.tkDesktop) return;
@@ -336,6 +338,32 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
       if (!paid.ok) throw new Error(paidData.error || "充值失败");
       setAccount(paidData.user);
     } catch (error: any) { setAccountError(error.message || "充值失败"); }
+    finally { setBillingBusy(false); }
+  };
+
+  const rechargePersonalAlipay = async (packageId: string) => {
+    if (!accountToken) return;
+    setBillingBusy(true); setAccountError("");
+    try {
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${accountToken}` };
+      const response = await fetch("/api/billing/orders", { method: "POST", headers, body: JSON.stringify({ provider: "alipay_personal", packageId }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "创建充值订单失败");
+      setManualRecharge({ orderId: data.order.id, amountFen: data.order.amountFen, credits: data.order.credits });
+      setManualProofNote("");
+    } catch (error: any) { setAccountError(error.message || "创建充值订单失败"); }
+    finally { setBillingBusy(false); }
+  };
+
+  const submitManualProof = async () => {
+    if (!accountToken || !manualRecharge) return;
+    setBillingBusy(true); setAccountError("");
+    try {
+      const response = await fetch(`/api/billing/orders/${manualRecharge.orderId}/submit-proof`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accountToken}` }, body: JSON.stringify({ note: manualProofNote }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "提交失败");
+      setManualRecharge(null); setManualProofNote(""); setAccountError("付款备注已提交，管理员确认后会增加积分。");
+    } catch (error: any) { setAccountError(error.message || "提交失败"); }
     finally { setBillingBusy(false); }
   };
 
@@ -831,9 +859,10 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
             </span>}
           </div>
         </div>
-        {accountOpen && <div className="absolute right-4 top-14 w-80 rounded-xl border border-slate-200 bg-white p-4 shadow-xl z-20">
-          {account ? <div className="space-y-3 text-sm"><div className="font-semibold">账户中心</div><div className="text-slate-600">当前余额：<span className="font-bold text-indigo-600">{account.credits} 积分</span></div><div><div className="text-xs font-medium text-slate-600 mb-2">充值测试</div><div className="grid grid-cols-3 gap-1.5">{[["starter", "100积分"], ["creator", "500积分"], ["studio", "1500积分"]].map(([id, label]) => <button key={id} type="button" disabled={billingBusy} onClick={() => rechargeMock(id)} className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] text-indigo-700 disabled:opacity-50">{label}</button>)}</div><p className="mt-1 text-[10px] text-slate-400">当前为模拟支付；接入微信/支付宝后按钮会跳转真实收银台。</p></div>{accountError && <p className="text-xs text-rose-600">{accountError}</p>}<button type="button" className="text-xs text-slate-500 underline" onClick={() => { setAccount(null); setAccountToken(""); }}>退出登录</button></div> : <form onSubmit={submitAccount} className="space-y-3"><div className="flex items-center justify-between"><span className="font-semibold">{accountMode === "login" ? "登录账户" : "注册账户"}</span><button type="button" className="text-xs text-indigo-600" onClick={() => { setAccountMode(accountMode === "login" ? "register" : "login"); setAccountError(""); }}>{accountMode === "login" ? "注册新账户" : "返回登录"}</button></div><Input type="email" placeholder="邮箱" value={accountEmail} onChange={(e) => setAccountEmail(e.target.value)} required /><Input type="password" placeholder="至少 8 位密码" value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} minLength={8} required />{accountError && <p className="text-xs text-rose-600">{accountError}</p>}<Button type="submit" className="w-full" disabled={accountBusy}>{accountBusy ? "处理中…" : accountMode === "login" ? "登录" : "注册并领取 100 积分"}</Button></form>}
+          {accountOpen && <div className="absolute right-4 top-14 w-80 rounded-xl border border-slate-200 bg-white p-4 shadow-xl z-20">
+          {account ? <div className="space-y-3 text-sm"><div className="font-semibold">账户中心</div><div className="text-slate-600">当前余额：<span className="font-bold text-indigo-600">{account.credits} 积分</span></div><div><div className="text-xs font-medium text-slate-600 mb-2">支付宝扫码充值</div><div className="grid grid-cols-3 gap-1.5">{[["starter", "9.9元 / 100"], ["creator", "39.9元 / 500"], ["studio", "99.9元 / 1500"]].map(([id, label]) => <button key={id} type="button" disabled={billingBusy} onClick={() => rechargePersonalAlipay(id)} className="rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] text-indigo-700 disabled:opacity-50">{label}</button>)}</div><p className="mt-1 text-[10px] text-slate-400">个人收款码人工确认到账，付款后请提交备注。</p></div>{accountError && <p className="text-xs text-rose-600">{accountError}</p>}<button type="button" className="text-xs text-slate-500 underline" onClick={() => { setAccount(null); setAccountToken(""); }}>退出登录</button></div> : <form onSubmit={submitAccount} className="space-y-3"><div className="flex items-center justify-between"><span className="font-semibold">{accountMode === "login" ? "登录账户" : "注册账户"}</span><button type="button" className="text-xs text-indigo-600" onClick={() => { setAccountMode(accountMode === "login" ? "register" : "login"); setAccountError(""); }}>{accountMode === "login" ? "注册新账户" : "返回登录"}</button></div><Input type="email" placeholder="邮箱" value={accountEmail} onChange={(e) => setAccountEmail(e.target.value)} required /><Input type="password" placeholder="至少 8 位密码" value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} minLength={8} required />{accountError && <p className="text-xs text-rose-600">{accountError}</p>}<Button type="submit" className="w-full" disabled={accountBusy}>{accountBusy ? "处理中…" : accountMode === "login" ? "登录" : "注册并领取 100 积分"}</Button></form>}
         </div>}
+        {manualRecharge && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><div className="flex items-center justify-between"><h3 className="font-semibold">支付宝个人码充值</h3><button type="button" className="text-slate-400" onClick={() => setManualRecharge(null)}>×</button></div><p className="mt-2 text-sm text-slate-600">请支付 <b>{(manualRecharge.amountFen / 100).toFixed(2)} 元</b>，到账后增加 {manualRecharge.credits} 积分。</p><img src="/payment/alipay-personal.jpg" alt="支付宝个人收款码" className="mx-auto my-4 h-64 w-64 object-contain" /><p className="text-xs text-slate-500">订单号：{manualRecharge.orderId}</p><Input placeholder="填写付款人昵称或付款时间" value={manualProofNote} onChange={(e) => setManualProofNote(e.target.value)} /><Button type="button" className="mt-3 w-full" disabled={billingBusy || !manualProofNote.trim()} onClick={submitManualProof}>{billingBusy ? "提交中…" : "我已付款，提交审核"}</Button><p className="mt-2 text-[10px] text-slate-400">管理员确认后到账；个人收款码不支持自动到账。</p></div></div>}
       </header>
 
       <main className="max-w-5xl mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">

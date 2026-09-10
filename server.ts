@@ -2,12 +2,13 @@ import "dotenv/config";
 import express from "express";
 import path from "path";
 import { createServer } from "node:http";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { GoogleGenAI, Type } from "@google/genai";
 import { ModelConfig, ScriptRequest, OllamaModelInfo, CloudModelInfo, ProductVisualFacts } from "./src/types";
 import { getCloudProviderPreset } from "./src/cloudProviders";
 import { AccountStore } from "./commercial/accountStore";
+import { createWechatNativeOrder, decryptWechatNotification, getWechatPayConfig, verifyWechatCallbackSignature } from "./commercial/wechatPay";
 
 import { durationPlan, durationInstruction, generateTimed } from "./duration";
 
@@ -1406,7 +1407,7 @@ export async function startServer(options: { port?: number; development?: boolea
     accountStore.consumeOnce(user.id, amount, `生成${duration}脚本`, reference);
     return { userId: user.id, amount, reference };
   };
-  app.use(express.json({ limit: "50mb" }));
+  app.use(express.json({ limit: "50mb", verify: (req, _res, buffer) => { (req as any).rawBody = Buffer.from(buffer); } }));
   app.get("/api/health", (_req, res) => res.json({ ok: true, version: "1.0.3" }));
 
   // Commercial mode foundation. Payment providers will call the recharge
@@ -1438,9 +1439,21 @@ export async function startServer(options: { port?: number; development?: boolea
   app.post("/api/billing/orders", (req, res) => {
     try {
       const user = authenticatedUser(req); if (!user) return res.status(401).json({ error: "请先登录" });
-      const provider = String(req.body?.provider || "mock") as "wechat" | "alipay" | "mock";
+      const provider = String(req.body?.provider || "mock") as "wechat" | "alipay" | "alipay_personal" | "mock";
       const order = accountStore.createRechargeOrder(user.id, provider, String(req.body?.packageId || ""));
-      return res.status(201).json({ order, payment: provider === "mock" ? { mode: "mock", action: `/api/billing/orders/${order.id}/mock-pay` } : { mode: "pending", message: "真实支付参数将在配置商户号后生成" } });
+      const payment = provider === "mock"
+        ? { mode: "mock", action: `/api/billing/orders/${order.id}/mock-pay` }
+        : provider === "alipay_personal"
+          ? { mode: "manual", qrUrl: "/payment/alipay-personal.jpg", message: "请扫码付款后提交付款备注，管理员确认后到账" }
+          : { mode: "pending", message: "真实支付参数将在配置商户号后生成" };
+      return res.status(201).json({ order, payment });
+    } catch (error: any) { return res.status(error.status || 500).json({ error: error.message }); }
+  });
+  app.post("/api/billing/orders/:orderId/submit-proof", (req, res) => {
+    try {
+      const user = authenticatedUser(req); if (!user) return res.status(401).json({ error: "请先登录" });
+      const order = accountStore.submitPaymentProof(String(req.params.orderId), user.id, String(req.body?.note || ""));
+      return res.json({ order, message: "已提交付款备注，等待管理员确认" });
     } catch (error: any) { return res.status(error.status || 500).json({ error: error.message }); }
   });
   app.post("/api/billing/orders/:orderId/mock-pay", (req, res) => {
@@ -1451,12 +1464,47 @@ export async function startServer(options: { port?: number; development?: boolea
       return res.json({ order: accountStore.markOrderPaid(order.id), user: accountStore.authenticate(String(req.headers.authorization || "").replace(/^Bearer\s+/i, "")) });
     } catch (error: any) { return res.status(error.status || 500).json({ error: error.message }); }
   });
+  app.post("/api/billing/orders/:orderId/wechat/native", async (req, res) => {
+    try {
+      const user = authenticatedUser(req); if (!user) return res.status(401).json({ error: "请先登录" });
+      const order = accountStore.order(user.id, String(req.params.orderId));
+      if (!order) return res.status(404).json({ error: "充值订单不存在" });
+      if (order.provider !== "wechat") return res.status(400).json({ error: "该订单不是微信支付订单" });
+      if (order.status !== "pending") return res.status(400).json({ error: "该订单已处理" });
+      const payment = await createWechatNativeOrder(getWechatPayConfig(), order);
+      return res.json({ order, payment: { mode: "wechat_native", codeUrl: payment.codeUrl } });
+    } catch (error: any) {
+      return res.status(error.status || 502).json({ error: error.message, code: error.code });
+    }
+  });
   app.post("/api/billing/webhook/:provider", (req, res) => {
     try {
       const provider = String(req.params.provider);
       if (provider !== "wechat" && provider !== "alipay") return res.status(400).json({ error: "不支持的支付渠道" });
       if (process.env.PAYMENT_WEBHOOK_SECRET && req.headers["x-payment-webhook-secret"] !== process.env.PAYMENT_WEBHOOK_SECRET) return res.status(401).json({ error: "支付回调签名无效" });
-      const order = accountStore.markOrderPaid(String(req.body?.orderId || ""));
+      let orderId = String(req.body?.orderId || req.body?.out_trade_no || "");
+      if (provider === "wechat") {
+        const resource = req.body?.resource;
+        const hasPlatformSignature = Boolean(req.headers["wechatpay-signature"] && req.headers["wechatpay-timestamp"] && req.headers["wechatpay-nonce"]);
+        if (resource && hasPlatformSignature) {
+          const platformCertPath = String(process.env.WECHAT_PLATFORM_CERT_PATH || "").trim();
+          if (!platformCertPath) return res.status(503).json({ error: "未配置微信平台证书，暂不能处理真实回调", code: "WECHAT_PLATFORM_CERT_MISSING" });
+          let platformKey: string;
+          try { platformKey = readFileSync(platformCertPath, "utf8"); }
+          catch { return res.status(503).json({ error: "微信平台证书无法读取", code: "WECHAT_PLATFORM_CERT_UNREADABLE" }); }
+          const rawBody = String((req as any).rawBody || JSON.stringify(req.body));
+          const verified = verifyWechatCallbackSignature({ signature: String(req.headers["wechatpay-signature"]), timestamp: String(req.headers["wechatpay-timestamp"]), nonce: String(req.headers["wechatpay-nonce"]), body: rawBody, platformPublicKeyPem: platformKey });
+          if (!verified) return res.status(401).json({ error: "微信支付回调验签失败", code: "WECHAT_CALLBACK_SIGNATURE_INVALID" });
+          const decrypted = JSON.parse(decryptWechatNotification(resource, getWechatPayConfig().apiV3Key));
+          if (decrypted.trade_state !== "SUCCESS") return res.status(200).json({ code: "SUCCESS", message: "成功" });
+          orderId = String(decrypted.out_trade_no || orderId);
+          const order = accountStore.orderById(orderId);
+          if (!order) return res.status(404).json({ code: "FAIL", message: "订单不存在" });
+          if (order.provider !== "wechat" || Number(decrypted.amount?.total) !== order.amountFen) return res.status(400).json({ code: "FAIL", message: "订单渠道或金额不匹配" });
+        }
+      }
+      if (!orderId) return res.status(400).json({ error: "回调缺少订单号" });
+      const order = accountStore.markOrderPaid(orderId);
       return res.json({ ok: true, orderId: order.id, status: order.status });
     } catch (error: any) { return res.status(error.status || 500).json({ error: error.message }); }
   });

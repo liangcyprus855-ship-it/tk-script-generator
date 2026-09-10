@@ -72,6 +72,21 @@ test('mock recharge order increases credits exactly once and creates a recharge 
     const ledger = await (await fetch(backend.url + '/api/account/ledger', { headers: auth })).json(); assert.equal(ledger.entries.filter((entry: any) => entry.type === 'recharge').length, 1);
   } finally { await backend.close(); rmSync(root, { recursive: true }); rmSync(dataDir, { recursive: true }); }
 });
+test('wechat native order reports missing server configuration without exposing secrets', async () => {
+  const previous = { app: process.env.WECHAT_APP_ID, mch: process.env.WECHAT_MCH_ID, serial: process.env.WECHAT_SERIAL_NO, key: process.env.WECHAT_API_V3_KEY, privateKey: process.env.WECHAT_PRIVATE_KEY_PATH, notify: process.env.WECHAT_NOTIFY_URL };
+  for (const key of ['WECHAT_APP_ID', 'WECHAT_MCH_ID', 'WECHAT_SERIAL_NO', 'WECHAT_API_V3_KEY', 'WECHAT_PRIVATE_KEY_PATH', 'WECHAT_NOTIFY_URL']) delete process.env[key];
+  const root = mkdtempSync(path.join(tmpdir(), 'TK 微信支付配置 ')); mkdirSync(path.join(root, 'dist')); writeFileSync(path.join(root, 'dist/index.html'), '<html>wechat</html>');
+  const dataDir = mkdtempSync(path.join(tmpdir(), 'TK 微信支付数据 ')); const backend = await startServer({ rootDir: root, dataDir, commercialMode: true });
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    const registered = await (await fetch(backend.url + '/api/account/register', { method: 'POST', headers, body: JSON.stringify({ email: 'wechat@example.com', password: 'strong-pass-123' }) })).json();
+    const auth = { ...headers, Authorization: `Bearer ${registered.token}` };
+    const created = await (await fetch(backend.url + '/api/billing/orders', { method: 'POST', headers: auth, body: JSON.stringify({ provider: 'wechat', packageId: 'starter' }) })).json();
+    const response = await fetch(backend.url + `/api/billing/orders/${created.order.id}/wechat/native`, { method: 'POST', headers: auth });
+    const result = await response.json();
+    assert.equal(response.status, 503); assert.equal(result.code, 'WECHAT_CONFIG_MISSING'); assert.doesNotMatch(JSON.stringify(result), /strong-pass|BEGIN RSA|api-secret-value/i);
+  } finally { await backend.close(); rmSync(root, { recursive: true }); rmSync(dataDir, { recursive: true }); for (const [key, value] of Object.entries({ WECHAT_APP_ID: previous.app, WECHAT_MCH_ID: previous.mch, WECHAT_SERIAL_NO: previous.serial, WECHAT_API_V3_KEY: previous.key, WECHAT_PRIVATE_KEY_PATH: previous.privateKey, WECHAT_NOTIFY_URL: previous.notify })) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } }
+});
 
 test('commercial generation consumes credits on success and refunds them on model failure', async () => {
   let fail = false;
