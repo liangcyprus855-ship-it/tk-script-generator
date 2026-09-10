@@ -1,0 +1,31 @@
+appId: com.tkscript.generator
+productName: TK跨境带货脚本生成器
+artifactName: TK-Script-Generator-Setup-${version}.${ext}
+asar: true
+files:
+  - "dist/**"
+  - "electron/**"
+  - "package.json"
+directories:
+  buildResources: build
+  output: release
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.ico
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: TK跨境带货脚本生成器
+  deleteAppDataOnUninstall: false
+publish:
+  provider: github
+  owner: 253874384-afk
+  repo: tk-script-generator
+releaseInfo:
+  releaseNotesFile: release-notes.md

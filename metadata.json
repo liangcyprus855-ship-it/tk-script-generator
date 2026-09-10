@@ -1,0 +1,6 @@
+{
+  "name": "TK跨境带货视频",
+  "description": "针对美区、日区、泰区、马来西亚区及印尼区的 TikTok 跨境电商爆款带货视频脚本定制生成工具。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

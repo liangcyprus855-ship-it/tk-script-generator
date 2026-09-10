@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      (function() {
+        try {
+          var desc = Object.getOwnPropertyDescriptor(window, 'fetch');
+          if (!desc) desc = Object.getOwnPropertyDescriptor(Window.prototype, 'fetch');
+          if (desc && !desc.set) {
+            var val = desc.get ? desc.get.call(window) : desc.value;
+            Object.defineProperty(window, 'fetch', {
+              get: function() { return val; },
+              set: function(v) { val = v; },
+              configurable: true,
+              enumerable: true
+            });
+          }
+        } catch(e) {}
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TK跨境带货视频</title>
+    <meta name="description" content="针对美区、日区、泰区、马来西亚区及印尼区的 TikTok 跨境电商爆款带货视频脚本定制生成工具。" />
+    <meta property="og:title" content="TK跨境带货视频" />
+    <meta property="og:description" content="针对美区、日区、泰区、马来西亚区及印尼区的 TikTok 跨境电商爆款带货视频脚本定制生成工具。" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
