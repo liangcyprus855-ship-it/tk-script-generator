@@ -41,7 +41,7 @@ function configureUpdater() {
 async function createWindow() {
   if (!backend) {
     const { startServer } = require(path.join(app.getAppPath(), 'dist', 'server.cjs'));
-    backend = await startServer({ rootDir: app.getAppPath(), dataDir: app.getPath('userData'), development: !app.isPackaged && process.argv.includes('--development'), port: 0 });
+    backend = await startServer({ rootDir: app.getAppPath(), dataDir: app.getPath('userData'), commercialMode: app.isPackaged, development: !app.isPackaged && process.argv.includes('--development'), port: 0 });
     const response = await fetch(backend.url + '/api/health', { signal: AbortSignal.timeout(5000) });
     const health = await response.json();
     if (!response.ok || health.ok !== true || health.version !== app.getVersion()) throw new Error('Backend health check failed');

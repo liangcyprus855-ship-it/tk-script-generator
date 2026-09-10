@@ -625,8 +625,8 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
       ? { ...modelConfig, inputMode: "multimodal" }
       : { ...visionModelConfig, inputMode: "multimodal" };
 
-    if (!visionConfig.model) throw new Error("请先选择图片识别模型。");
-    if (visionConfig.provider !== "ollama" && !visionConfig.apiKey) throw new Error("请先填写图片识别模型的 API Key。");
+    if (!commercialMode && !visionConfig.model) throw new Error("请先选择图片识别模型。");
+    if (!commercialMode && visionConfig.provider !== "ollama" && !visionConfig.apiKey) throw new Error("请先填写图片识别模型的 API Key。");
 
     setGenerationStep(-1);
     const controller = new AbortController();
@@ -656,25 +656,25 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.product || !formData.targetAudience || !formData.features) return;
-    if (!modelConfig.model) {
+    if (!commercialMode && !modelConfig.model) {
       alert(modelConfig.provider === "ollama" ? "请先选择一个 Ollama 模型" : "请输入云端模型名称");
       return;
     }
-    if (modelConfig.provider !== "ollama" && !modelConfig.apiKey) {
+    if (!commercialMode && modelConfig.provider !== "ollama" && !modelConfig.apiKey) {
       alert("请输入云端 API Key");
       return;
     }
 
     if (formData.image) {
-      if (!useSameModelForVision && !visionModelConfig.model) {
+      if (!commercialMode && !useSameModelForVision && !visionModelConfig.model) {
         setGenerationError("已经上传产品图片，但尚未选择图片识别模型。请先配置视觉模型。");
         return;
       }
-      if (!useSameModelForVision && visionModelConfig.provider !== "ollama" && !visionModelConfig.apiKey) {
+      if (!commercialMode && !useSameModelForVision && visionModelConfig.provider !== "ollama" && !visionModelConfig.apiKey) {
         setGenerationError("图片识别模型使用云端 API，请先填写视觉模型的 API Key。");
         return;
       }
-      if (useSameModelForVision && modelConfig.inputMode !== "multimodal") {
+      if (!commercialMode && useSameModelForVision && modelConfig.inputMode !== "multimodal") {
         setGenerationError("你选择了“视觉与脚本使用同一个模型”，请确认该模型支持图片，并把同模型图片能力设为“支持图片”。");
         return;
       }

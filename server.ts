@@ -1375,10 +1375,19 @@ async function probeSelectedCloudModel(config: ModelConfig) {
   }
 }
 
-export async function startServer(options: { port?: number; development?: boolean; rootDir: string; dataDir?: string }) {
+export async function startServer(options: { port?: number; development?: boolean; rootDir: string; dataDir?: string; commercialMode?: boolean }) {
   const app = express();
   const PORT = options.port ?? 0;
   const accountStore = new AccountStore(options.dataDir || path.join(options.rootDir, ".commercial-data"));
+  const commercialMode = options.commercialMode ?? process.env.TK_COMMERCIAL_MODE === "true";
+  const resolveModelConfig = (requested: ModelConfig): ModelConfig => commercialMode ? {
+    provider: (process.env.TK_COMMERCIAL_PROVIDER as ModelConfig["provider"]) || "ollama",
+    baseUrl: process.env.TK_COMMERCIAL_BASE_URL || "http://127.0.0.1:11434",
+    model: process.env.TK_COMMERCIAL_MODEL || "",
+    apiKey: process.env.TK_COMMERCIAL_API_KEY || "",
+    cloudProviderId: process.env.TK_COMMERCIAL_CLOUD_PROVIDER || "openai",
+    inputMode: process.env.TK_COMMERCIAL_INPUT_MODE === "multimodal" ? "multimodal" : "text",
+  } : requested;
   app.use(express.json({ limit: "50mb" }));
   app.get("/api/health", (_req, res) => res.json({ ok: true, version: "1.0.3" }));
 
@@ -1471,7 +1480,7 @@ export async function startServer(options: { port?: number; development?: boolea
   app.post("/api/analyze-product-image", async (req, res) => {
     try {
       const body = req.body as ScriptRequest;
-      const config: ModelConfig = body.modelConfig || { provider: "ollama", baseUrl: "http://127.0.0.1:11434", model: "", inputMode: "text" };
+      const config: ModelConfig = resolveModelConfig(body.modelConfig || { provider: "ollama", baseUrl: "http://127.0.0.1:11434", model: "", inputMode: "text" });
       if (!body.image) return res.status(400).json({ error: "请先上传产品图片" });
       if (!config.model) return res.status(400).json({ error: "请先选择模型" });
       const visualFacts = await analyzeProductImage(config, body.product || "", body.image);
@@ -1489,7 +1498,7 @@ export async function startServer(options: { port?: number; development?: boolea
       const body = req.body as ScriptRequest & { index?: number; style?: string };
       const { product, targetAudience, features, duration } = body;
       if (!product || !targetAudience || !features || !duration) return res.status(400).json({ error: "请填写完整的产品、受众、卖点与时长" });
-      const config: ModelConfig = body.modelConfig || { provider: "ollama", baseUrl: "http://127.0.0.1:11434", model: "" };
+      const config: ModelConfig = resolveModelConfig(body.modelConfig || { provider: "ollama", baseUrl: "http://127.0.0.1:11434", model: "" });
       if (config.provider !== "ollama") return res.status(400).json({ error: "逐套生成接口仅用于本地 Ollama" });
       const index = Math.min(3, Math.max(1, Number(body.index || 1)));
       const styles = ["UGC 真实评测", "POV 第一视角", "Viral Demo 强视觉演示"];
@@ -1510,11 +1519,11 @@ export async function startServer(options: { port?: number; development?: boolea
       const body = req.body as ScriptRequest;
       const { product, targetAudience, features, duration } = body;
       if (!product || !targetAudience || !features || !duration) return res.status(400).json({ error: "请填写完整的产品、受众、卖点与时长" });
-      const config: ModelConfig = body.modelConfig || {
+      const config: ModelConfig = resolveModelConfig(body.modelConfig || {
         provider: "ollama",
         baseUrl: "http://127.0.0.1:11434",
         model: ""
-      };
+      });
       const prompt = buildPrompt(body);
       const generationImage = body.visualFacts ? undefined : body.image;
       const scripts = await generateTimed(duration, async correction => {
