@@ -1383,7 +1383,9 @@ export async function startServer(options: { port?: number; development?: boolea
   const resolveModelConfig = (requested: ModelConfig): ModelConfig => commercialMode ? {
     provider: (process.env.TK_COMMERCIAL_PROVIDER as ModelConfig["provider"]) || "ollama",
     baseUrl: process.env.TK_COMMERCIAL_BASE_URL || "http://127.0.0.1:11434",
-    model: process.env.TK_COMMERCIAL_MODEL || "",
+    // Local fallback keeps the packaged prototype testable; production should
+    // always set this to the server-side model selected by the operator.
+    model: process.env.TK_COMMERCIAL_MODEL || "qwen3:4b",
     apiKey: process.env.TK_COMMERCIAL_API_KEY || "",
     cloudProviderId: process.env.TK_COMMERCIAL_CLOUD_PROVIDER || "openai",
     inputMode: process.env.TK_COMMERCIAL_INPUT_MODE === "multimodal" ? "multimodal" : "text",
