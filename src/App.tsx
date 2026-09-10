@@ -285,6 +285,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const [updateStatus, setUpdateStatus] = useState<{ state: string; message?: string; version?: string; percent?: number } | null>(null);
   const [account, setAccount] = useState<{ id: string; email: string; credits: number } | null>(null);
   const [accountToken, setAccountToken] = useState("");
+  const [cloudAccountToken, setCloudAccountToken] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountMode, setAccountMode] = useState<"login" | "register">("login");
   const [accountEmail, setAccountEmail] = useState("");
@@ -328,7 +329,14 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
       const response = await billingFetch(`/api/account/${accountMode === "login" ? "login" : "register"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: accountEmail, password: accountPassword }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "账户操作失败");
-      setAccountToken(data.token); setAccount(data.user); setAccountOpen(false); setAccountPassword("");
+      let localResponse = await fetch(`/api/account/${accountMode === "login" ? "login" : "register"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: accountEmail, password: accountPassword }) });
+      let localData = await localResponse.json().catch(() => ({}));
+      if (!localResponse.ok && accountMode === "login") {
+        localResponse = await fetch("/api/account/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: accountEmail, password: accountPassword }) });
+        localData = await localResponse.json().catch(() => ({}));
+      }
+      if (!localResponse.ok) throw new Error(localData.error || "本地生成服务账户同步失败");
+      setCloudAccountToken(data.token); setAccountToken(localData.token); setAccount(data.user); setAccountOpen(false); setAccountPassword("");
     } catch (error: any) { setAccountError(error.message || "账户操作失败"); }
     finally { setAccountBusy(false); }
   };
@@ -337,7 +345,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     if (!accountToken) return;
     setBillingBusy(true); setAccountError("");
     try {
-      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${accountToken}` };
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${cloudAccountToken || accountToken}` };
       const created = await billingFetch("/api/billing/orders", { method: "POST", headers, body: JSON.stringify({ provider: "mock", packageId }) });
       const orderData = await created.json();
       if (!created.ok) throw new Error(orderData.error || "创建充值订单失败");
@@ -353,7 +361,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     if (!accountToken) return;
     setBillingBusy(true); setAccountError("");
     try {
-      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${accountToken}` };
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${cloudAccountToken || accountToken}` };
       const response = await billingFetch("/api/billing/orders", { method: "POST", headers, body: JSON.stringify({ provider: "alipay_personal", packageId }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "创建充值订单失败");
@@ -367,7 +375,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     if (!accountToken || !manualRecharge) return;
     setBillingBusy(true); setAccountError("");
     try {
-      const response = await billingFetch(`/api/billing/orders/${manualRecharge.orderId}/submit-proof`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accountToken}` }, body: JSON.stringify({ note: manualProofNote }) });
+      const response = await billingFetch(`/api/billing/orders/${manualRecharge.orderId}/submit-proof`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${cloudAccountToken || accountToken}` }, body: JSON.stringify({ note: manualProofNote }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "提交失败");
       setManualRecharge(null); setManualProofNote(""); setAccountError("付款备注已提交，管理员确认后会增加积分。");
@@ -379,7 +387,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     if (!accountToken) return;
     setBillingBusy(true); setAccountError("");
     try {
-      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${accountToken}` };
+      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${cloudAccountToken || accountToken}` };
       const created = await billingFetch("/api/billing/orders", { method: "POST", headers, body: JSON.stringify({ provider: "wechat", packageId }) });
       const orderData = await created.json();
       if (!created.ok) throw new Error(orderData.error || "创建微信充值订单失败");
@@ -829,7 +837,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
       setGenerationError(explainGenerationFailure(error));
     } finally {
       if (accountToken) {
-        billingFetch("/api/account/me", { headers: { Authorization: `Bearer ${accountToken}` } }).then((response) => response.ok ? response.json() : null).then((data) => { if (data?.user) setAccount(data.user); }).catch(() => {});
+        billingFetch("/api/account/me", { headers: { Authorization: `Bearer ${cloudAccountToken || accountToken}` } }).then((response) => response.ok ? response.json() : null).then((data) => { if (data?.user) setAccount(data.user); }).catch(() => {});
       }
       setGenerationStep(0);
       setLoading(false);
