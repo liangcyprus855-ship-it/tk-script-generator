@@ -1424,6 +1424,18 @@ export async function startServer(options: { port?: number; development?: boolea
     const user = accountStore.authenticate(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
     return user ? res.json({ user }) : res.status(401).json({ error: "请先登录" });
   });
+  app.post("/api/account/sync-cloud", async (req, res) => {
+    try {
+      const localUser = authenticatedUser(req); if (!localUser) return res.status(401).json({ error: "请先登录" });
+      const cloudToken = String(req.headers["x-cloud-account-token"] || "").trim();
+      if (!cloudToken) return res.status(400).json({ error: "缺少云端账户凭据" });
+      const cloudBase = String(process.env.TK_COMMERCIAL_CLOUD_API_URL || "https://tk-script-generator-api.liangcyprus855.chatgpt.site").replace(/\/+$/, "");
+      const response = await fetch(`${cloudBase}/api/account/me`, { headers: { Authorization: `Bearer ${cloudToken}` } });
+      const data: any = await response.json().catch(() => ({}));
+      if (!response.ok || !data.user || data.user.email !== localUser.email) return res.status(401).json({ error: "云端账户校验失败" });
+      return res.json({ user: accountStore.setCredits(localUser.id, Number(data.user.credits)) });
+    } catch (error: any) { return res.status(error.status || 502).json({ error: error.message || "云端余额同步失败" }); }
+  });
   app.get("/api/account/ledger", (req, res) => {
     const user = accountStore.authenticate(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
     return user ? res.json({ entries: accountStore.ledger(user.id) }) : res.status(401).json({ error: "请先登录" });

@@ -77,6 +77,14 @@ export class AccountStore {
     return account ? { id: account.id, email: account.email, credits: account.credits } : null;
   }
 
+  setCredits(userId: string, credits: number) {
+    const account = this.data.accounts.find((item) => item.id === userId);
+    if (!account || !Number.isFinite(credits) || credits < 0) throw Object.assign(new Error("账户积分无效"), { status: 400 });
+    account.credits = Math.floor(credits);
+    this.persist();
+    return { id: account.id, email: account.email, credits: account.credits };
+  }
+
   ledger(userId: string) { return this.data.ledger[userId] || []; }
 
   quote(duration: string) {
