@@ -686,8 +686,8 @@ async function callOllamaRaw(
         format,
         keep_alive: "10m",
         options: {
-          temperature: 0,
-          top_p: isQwen3 ? 0.8 : 0.9,
+          temperature: 0.7,
+          top_p: 0.9,
           top_k: 20,
           num_ctx: 8192,
           num_predict: numPredict
