@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { durationPlan, validateDuration, generateTimed } from '../duration';
 const scripts = (duration: string) => [{ script: durationPlan(duration).slots.map(timestamp => ({ timestamp, visual: '演示', audio: '台词' })) }];
 test('all UI durations have complete distinct timelines; reject short, missing and discontinuous results', () => {
-  for (const d of ['10秒', '15秒', '20-30秒 (标准爆款展示)', '45秒', '60秒']) {
+  for (const d of ['10秒 · 2积分 (极限短平快/极速促单)', '15秒 · 3积分 (极速引流/强视觉)', '20-30秒 · 6积分 (标准爆款展示)', '45秒 · 9积分 (深度痛点解析)', '60秒 · 12积分 (完整沉浸式评测)']) {
     validateDuration(scripts(d), d);
     assert.throws(() => validateDuration([{ script: [{ timestamp: '' }] }], d));
-    if (d !== '10秒') assert.throws(() => validateDuration(scripts('10秒'), d));
+    if (!d.startsWith('10秒')) assert.throws(() => validateDuration(scripts('10秒'), d));
   }
   const broken = scripts('60秒'); broken[0].script[1].timestamp = '4-8s';
   assert.throws(() => validateDuration(broken, '60秒'));

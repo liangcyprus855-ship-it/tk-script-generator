@@ -1,5 +1,7 @@
 export function durationPlan(value: string) {
-  const match = String(value).match(/^(10|15|20-30|45|60)秒(?:\s*\(.*\))?$/);
+  // The commercial UI includes the credit label after the duration, e.g. "10秒 · 2积分 (...)".
+  // Accept that display suffix while keeping the duration itself strictly validated.
+  const match = String(value).match(/^(10|15|20-30|45|60)秒(?:\s*(?:·.*|\(.*\)))?$/);
   if (!match) throw Object.assign(new Error('请选择有效的脚本时长'), { status: 400 });
   const seconds = match[1] === '20-30' ? 30 : Number(match[1]);
   const slots: string[] = [];
