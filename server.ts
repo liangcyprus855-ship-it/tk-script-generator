@@ -1156,7 +1156,10 @@ async function generateWithOpenAI(config: ModelConfig, prompt: string, image?: s
       },
       body: JSON.stringify({
         model: config.model,
-        messages: [{ role: "user", content }]
+        messages: [{ role: "user", content }],
+        max_completion_tokens: config.cloudProviderId === "xiaomi-mimo" ? 8000 : undefined,
+        thinking: config.cloudProviderId === "xiaomi-mimo" ? { type: "disabled" } : undefined,
+        stream: false
       })
     });
   } catch (error: any) {
