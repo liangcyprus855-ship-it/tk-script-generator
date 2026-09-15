@@ -7,16 +7,21 @@ const b64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
 const fromB64 = (value) => Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
 
 async function sha256(value) { return hex(await crypto.subtle.digest("SHA-256", encoder.encode(value))); }
-async function passwordHash(password, salt = crypto.randomUUID()) {
+async function passwordHash(password, salt = crypto.randomUUID(), iterations = 100000) {
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: encoder.encode(salt), iterations: 120000, hash: "SHA-256" }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: encoder.encode(salt), iterations, hash: "SHA-256" }, key, 256);
   return `${salt}:${hex(bits)}`;
 }
 async function checkPassword(password, stored) {
   const [salt, expected] = text(stored).split(":");
   if (!salt || !expected) return false;
-  const actual = await passwordHash(password, salt);
-  return actual === `${salt}:${expected}`;
+  for (const iterations of [100000, 120000]) {
+    try {
+      const actual = await passwordHash(password, salt, iterations);
+      if (actual === `${salt}:${expected}`) return true;
+    } catch {}
+  }
+  return false;
 }
 function authToken(request) { return text(request.headers.get("authorization")).replace(/^Bearer\s+/i, ""); }
 async function userFrom(request, env) {
