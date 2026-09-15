@@ -6,6 +6,9 @@ declare global {
       isDesktop: boolean;
       loadSettings: () => Promise<any>;
       saveSettings: (value: any) => Promise<void>;
+      loadAuth: () => Promise<{ localToken: string; cloudToken: string } | null>;
+      saveAuth: (value: { localToken: string; cloudToken: string }) => Promise<void>;
+      clearAuth: () => Promise<void>;
       getVersion: () => Promise<string>;
       checkForUpdates: () => Promise<any>;
       downloadUpdate: () => Promise<any>;

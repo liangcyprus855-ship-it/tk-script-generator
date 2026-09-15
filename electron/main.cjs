@@ -95,6 +95,9 @@ app.whenReady().then(async () => {
   }
   ipcMain.handle('tk:load-settings', () => settings.load());
   ipcMain.handle('tk:save-settings', (_event, value) => settings.save(value));
+  ipcMain.handle('tk:load-auth', () => settings.loadAuth());
+  ipcMain.handle('tk:save-auth', (_event, value) => settings.saveAuth(value));
+  ipcMain.handle('tk:clear-auth', () => settings.clearAuth());
   configureUpdater();
   await createWindow();
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) void createWindow().catch(fail); });

@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 function createSettingsStore(directory, encryption) {
   const file = path.join(directory, 'settings.json');
+  const authFile = path.join(directory, 'account-session.json');
   function load() {
     if (!fs.existsSync(file)) return {};
     const value = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -29,6 +30,21 @@ function createSettingsStore(directory, encryption) {
     fs.writeFileSync(file + '.tmp', JSON.stringify(value, null, 2), { mode: 0o600 });
     fs.renameSync(file + '.tmp', file);
   }
-  return { load, save };
+  function loadAuth() {
+    if (!fs.existsSync(authFile)) return null;
+    const value = JSON.parse(fs.readFileSync(authFile, 'utf8'));
+    const decrypt = (key) => value[key] ? encryption.decryptString(Buffer.from(value[key], 'base64')) : '';
+    return { localToken: decrypt('localToken'), cloudToken: decrypt('cloudToken') };
+  }
+  function saveAuth(input) {
+    if (!input || typeof input.localToken !== 'string' || typeof input.cloudToken !== 'string') throw new Error('Invalid account session');
+    if (!encryption.isEncryptionAvailable()) throw new Error('系统密钥加密不可用');
+    const value = { localToken: encryption.encryptString(input.localToken).toString('base64'), cloudToken: encryption.encryptString(input.cloudToken).toString('base64') };
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(authFile + '.tmp', JSON.stringify(value), { mode: 0o600 });
+    fs.renameSync(authFile + '.tmp', authFile);
+  }
+  function clearAuth() { try { fs.unlinkSync(authFile); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+  return { load, save, loadAuth, saveAuth, clearAuth };
 }
 module.exports = { createSettingsStore };
