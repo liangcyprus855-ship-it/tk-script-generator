@@ -825,7 +825,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
           try {
             const response = await fetch("/api/generate-one", {
               method: "POST",
-              headers: { "Content-Type": "application/json", ...(accountToken ? { Authorization: `Bearer ${accountToken}` } : {}) },
+              headers: { "Content-Type": "application/json", ...(accountToken ? { Authorization: `Bearer ${accountToken}`, "X-Cloud-Account-Token": cloudAccountToken } : {}) },
               signal: controller.signal,
               body: JSON.stringify({ ...requestData, modelConfig, index: i + 1, style: styles[i] }),
             });
@@ -856,7 +856,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
         try {
           const response = await fetch("/api/generate", {
             method: "POST",
-            headers: { "Content-Type": "application/json", ...(accountToken ? { Authorization: `Bearer ${accountToken}` } : {}) },
+            headers: { "Content-Type": "application/json", ...(accountToken ? { Authorization: `Bearer ${accountToken}`, "X-Cloud-Account-Token": cloudAccountToken } : {}) },
             signal: controller.signal,
             body: JSON.stringify({ ...requestData, modelConfig }),
           });

@@ -1399,13 +1399,24 @@ export async function startServer(options: { port?: number; development?: boolea
     if (!user) throw Object.assign(new Error("请先登录账户"), { status: 401 });
     return user;
   };
-  const chargeGeneration = (req: express.Request, duration: string, reference: string, split = 1) => {
+  const cloudBillingRequest = async (req: express.Request, action: "consume" | "refund", amount: number, reference: string, description: string) => {
+    const token = String(req.headers["x-cloud-account-token"] || "").trim();
+    if (!token) return false;
+    const base = String(process.env.TK_COMMERCIAL_CLOUD_API_URL || "https://tk-script-generator-api.liangcyprus855.chatgpt.site").replace(/\/+$/, "");
+    const response = await fetch(`${base}/api/billing/${action}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ amount, reference, description }) });
+    const data: any = await response.json().catch(() => ({}));
+    if (!response.ok) throw Object.assign(new Error(data.error || `云端积分${action === "consume" ? "扣除" : "退回"}失败`), { status: response.status });
+    return true;
+  };
+  const chargeGeneration = async (req: express.Request, duration: string, reference: string, split = 1) => {
     const user = requireCommercialUser(req);
     if (!user) return null;
     const total = accountStore.quote(duration).credits;
     const amount = Math.ceil(total / split);
-    accountStore.consumeOnce(user.id, amount, `生成${duration}脚本`, reference);
-    return { userId: user.id, amount, reference };
+    const cloudCharged = await cloudBillingRequest(req, "consume", amount, reference, `生成${duration}脚本`);
+    try { accountStore.consumeOnce(user.id, amount, `生成${duration}脚本`, reference); }
+    catch (error) { if (cloudCharged) await cloudBillingRequest(req, "refund", amount, reference, "本地余额同步失败，积分已退回"); throw error; }
+    return { userId: user.id, amount, reference, cloudCharged };
   };
   app.use(express.json({ limit: "50mb", verify: (req, _res, buffer) => { (req as any).rawBody = Buffer.from(buffer); } }));
   app.get("/api/health", (_req, res) => res.json({ ok: true, version: "1.0.3" }));
@@ -1601,7 +1612,7 @@ export async function startServer(options: { port?: number; development?: boolea
   });
 
   app.post("/api/generate-one", async (req, res) => {
-    let charge: { userId: string; amount: number; reference: string } | null = null;
+    let charge: { userId: string; amount: number; reference: string; cloudCharged: boolean } | null = null;
     try {
       const body = req.body as ScriptRequest & { index?: number; style?: string; billingRef?: string };
       const { product, targetAudience, features, duration } = body;
@@ -1611,12 +1622,12 @@ export async function startServer(options: { port?: number; development?: boolea
       const index = Math.min(3, Math.max(1, Number(body.index || 1)));
       const styles = ["UGC 真实评测", "POV 第一视角", "Viral Demo 强视觉演示"];
       const style = String(body.style || styles[index - 1]);
-      charge = chargeGeneration(req, duration, `${String(body.billingRef || crypto.randomUUID())}:script:${index}`, 3);
+      charge = await chargeGeneration(req, duration, `${String(body.billingRef || crypto.randomUUID())}:script:${index}`, 3);
       const prompt = buildPrompt(body);
       const [script] = await generateTimed(duration, async correction => [await generateOneWithOllama(config, prompt + correction, body.visualFacts ? undefined : body.image, index, style, duration)]);
       return res.json({ script, index, total: 3, model: { provider: config.provider, model: config.model } });
     } catch (error: any) {
-      if (charge) accountStore.refund(charge.userId, charge.amount, "脚本生成失败，积分已退回", charge.reference);
+      if (charge) { accountStore.refund(charge.userId, charge.amount, "脚本生成失败，积分已退回", charge.reference); if (charge.cloudCharged) await cloudBillingRequest(req, "refund", charge.amount, charge.reference, "脚本生成失败，积分已退回"); }
       console.error("Error generating one Ollama script:", error);
       const config = (req.body?.modelConfig || { provider: "ollama", model: "" }) as ModelConfig;
       const explained = explainModelServiceError(error, config);
@@ -1625,7 +1636,7 @@ export async function startServer(options: { port?: number; development?: boolea
   });
 
   app.post("/api/generate", async (req, res) => {
-    let charge: { userId: string; amount: number; reference: string } | null = null;
+    let charge: { userId: string; amount: number; reference: string; cloudCharged: boolean } | null = null;
     try {
       const body = req.body as ScriptRequest & { billingRef?: string };
       const { product, targetAudience, features, duration } = body;
@@ -1635,7 +1646,7 @@ export async function startServer(options: { port?: number; development?: boolea
         baseUrl: "http://127.0.0.1:11434",
         model: ""
       });
-      charge = chargeGeneration(req, duration, String(body.billingRef || crypto.randomUUID()));
+      charge = await chargeGeneration(req, duration, String(body.billingRef || crypto.randomUUID()));
       const prompt = buildPrompt(body);
       const generationImage = body.visualFacts ? undefined : body.image;
       const scripts = await generateTimed(duration, async correction => {
@@ -1648,7 +1659,7 @@ export async function startServer(options: { port?: number; development?: boolea
       });
       res.json({ scripts: scripts.slice(0, 3), model: { provider: config.provider, model: config.model } });
     } catch (error: any) {
-      if (charge) accountStore.refund(charge.userId, charge.amount, "脚本生成失败，积分已退回", charge.reference);
+      if (charge) { accountStore.refund(charge.userId, charge.amount, "脚本生成失败，积分已退回", charge.reference); if (charge.cloudCharged) await cloudBillingRequest(req, "refund", charge.amount, charge.reference, "脚本生成失败，积分已退回"); }
       console.error("Error generating scripts:", error);
       const config = (req.body?.modelConfig || { provider: "openai", model: "" }) as ModelConfig;
       const explained = explainModelServiceError(error, config);
