@@ -1408,11 +1408,14 @@ export async function startServer(options: { port?: number; development?: boolea
     if (!response.ok) throw Object.assign(new Error(data.error || `云端积分${action === "consume" ? "扣除" : "退回"}失败`), { status: response.status });
     return true;
   };
-  const chargeGeneration = async (req: express.Request, duration: string, reference: string, split = 1) => {
+  const chargeGeneration = async (req: express.Request, duration: string, reference: string, split = 1, sequence = 1) => {
     const user = requireCommercialUser(req);
     if (!user) return null;
     const total = accountStore.quote(duration).credits;
-    const amount = Math.ceil(total / split);
+    const base = Math.floor(total / split);
+    const remainder = total % split;
+    const amount = base + (sequence <= remainder ? 1 : 0);
+    if (amount === 0) return { userId: user.id, amount, reference, cloudCharged: false };
     const cloudCharged = await cloudBillingRequest(req, "consume", amount, reference, `生成${duration}脚本`);
     try { accountStore.consumeOnce(user.id, amount, `生成${duration}脚本`, reference); }
     catch (error) { if (cloudCharged) await cloudBillingRequest(req, "refund", amount, reference, "本地余额同步失败，积分已退回"); throw error; }
@@ -1622,7 +1625,7 @@ export async function startServer(options: { port?: number; development?: boolea
       const index = Math.min(3, Math.max(1, Number(body.index || 1)));
       const styles = ["UGC 真实评测", "POV 第一视角", "Viral Demo 强视觉演示"];
       const style = String(body.style || styles[index - 1]);
-      charge = await chargeGeneration(req, duration, `${String(body.billingRef || crypto.randomUUID())}:script:${index}`, 3);
+      charge = await chargeGeneration(req, duration, `${String(body.billingRef || crypto.randomUUID())}:script:${index}`, 3, index);
       const prompt = buildPrompt(body);
       const [script] = await generateTimed(duration, async correction => [await generateOneWithOllama(config, prompt + correction, body.visualFacts ? undefined : body.image, index, style, duration)]);
       return res.json({ script, index, total: 3, model: { provider: config.provider, model: config.model } });
