@@ -1383,13 +1383,11 @@ export async function startServer(options: { port?: number; development?: boolea
   const accountStore = new AccountStore(options.dataDir || path.join(options.rootDir, ".commercial-data"));
   const commercialMode = options.commercialMode ?? process.env.TK_COMMERCIAL_MODE === "true";
   const resolveModelConfig = (requested: ModelConfig): ModelConfig => commercialMode ? {
-    provider: (process.env.TK_COMMERCIAL_PROVIDER as ModelConfig["provider"]) || "ollama",
-    baseUrl: process.env.TK_COMMERCIAL_BASE_URL || "http://127.0.0.1:11434",
-    // Local fallback keeps the packaged prototype testable; production should
-    // always set this to the server-side model selected by the operator.
-    model: process.env.TK_COMMERCIAL_MODEL || "qwen3:4b",
+    provider: (process.env.TK_COMMERCIAL_PROVIDER as ModelConfig["provider"]) || "openai",
+    baseUrl: process.env.TK_COMMERCIAL_BASE_URL || "https://api.xiaomimimo.com/v1",
+    model: process.env.TK_COMMERCIAL_MODEL || "mimo-v2.5-pro",
     apiKey: process.env.TK_COMMERCIAL_API_KEY || "",
-    cloudProviderId: process.env.TK_COMMERCIAL_CLOUD_PROVIDER || "openai",
+    cloudProviderId: process.env.TK_COMMERCIAL_CLOUD_PROVIDER || "xiaomi-mimo",
     inputMode: process.env.TK_COMMERCIAL_INPUT_MODE === "multimodal" ? "multimodal" : "text",
   } : requested;
   const authenticatedUser = (req: express.Request) => accountStore.authenticate(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
