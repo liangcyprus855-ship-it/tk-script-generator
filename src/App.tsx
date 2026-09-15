@@ -314,6 +314,14 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     return off;
   }, []);
 
+  useEffect(() => {
+    if (!commercialMode || !cloudAccountToken) return;
+    const refreshAccount = () => billingFetch("/api/account/me", { headers: { Authorization: `Bearer ${cloudAccountToken}` } }).then((response) => response.ok ? response.json() : null).then((data) => { if (data?.user) setAccount(data.user); }).catch(() => {});
+    refreshAccount();
+    const timer = window.setInterval(refreshAccount, 5000);
+    return () => window.clearInterval(timer);
+  }, [commercialMode, cloudAccountToken]);
+
   const handleDesktopUpdateAction = async () => {
     if (!window.tkDesktop) return;
     const state = updateStatus?.state;
