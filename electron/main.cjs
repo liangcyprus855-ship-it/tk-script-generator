@@ -90,6 +90,25 @@ app.whenReady().then(async () => {
   logger = message => fs.appendFileSync(path.join(logs, 'startup.log'), new Date().toISOString() + ' ' + message + '\n');
   logger('Starting ' + app.getVersion() + ' packaged=' + app.isPackaged);
   const settings = createSettingsStore(app.getPath('userData'), safeStorage);
+  const bootstrapMimoKey = String(process.env.TK_MIMO_BOOTSTRAP_KEY || '').trim();
+  if (bootstrapMimoKey) {
+    const current = settings.load();
+    settings.save({ ...current, modelConfig: { provider: 'openai', cloudProviderId: 'xiaomi-mimo', baseUrl: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.5-pro', apiKey: bootstrapMimoKey, inputMode: 'text' }, useSameModelForVision: false });
+    delete process.env.TK_MIMO_BOOTSTRAP_KEY;
+    logger('MiMo cloud model settings encrypted into userData');
+  }
+  if (app.isPackaged) {
+    const stored = settings.load();
+    const cloud = stored.modelConfig;
+    if (cloud?.cloudProviderId === 'xiaomi-mimo' && cloud.apiKey) {
+      process.env.TK_COMMERCIAL_PROVIDER = 'openai';
+      process.env.TK_COMMERCIAL_CLOUD_PROVIDER = 'xiaomi-mimo';
+      process.env.TK_COMMERCIAL_BASE_URL = cloud.baseUrl || 'https://api.xiaomimimo.com/v1';
+      process.env.TK_COMMERCIAL_MODEL = cloud.model || 'mimo-v2.5-pro';
+      process.env.TK_COMMERCIAL_API_KEY = cloud.apiKey;
+      process.env.TK_COMMERCIAL_INPUT_MODE = cloud.inputMode || 'text';
+    }
+  }
   if (process.env.TK_SMOKE_DATA_DIR && !process.env.TK_SMOKE_RESTART) {
     settings.save({ modelConfig: { provider: 'openai', model: 'smoke-script', baseUrl: 'http://127.0.0.1', apiKey: 'smoke-only-script-key' }, visionModelConfig: { provider: 'openai', model: 'smoke-vision', baseUrl: 'http://127.0.0.1', apiKey: 'smoke-only-vision-key' }, useSameModelForVision: false });
   }
