@@ -17,7 +17,7 @@ function configureUpdater() {
   autoUpdater.allowPrerelease = false;
 
   autoUpdater.on('checking-for-update', () => sendUpdate({ state: 'checking', message: '正在检查更新…' }));
-  autoUpdater.on('update-available', (info) => sendUpdate({ state: 'available', version: info.version, message: `发现新版本 ${info.version}` }));
+  autoUpdater.on('update-available', (info) => sendUpdate({ state: 'available', version: info.version, message: `发现新版本 ${info.version}`, releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : '' }));
   autoUpdater.on('update-not-available', () => sendUpdate({ state: 'current', message: '当前已经是最新版本' }));
   autoUpdater.on('download-progress', (p) => sendUpdate({ state: 'downloading', percent: Math.round(p.percent || 0), message: `正在下载更新 ${Math.round(p.percent || 0)}%` }));
   autoUpdater.on('update-downloaded', (info) => sendUpdate({ state: 'downloaded', version: info.version, message: `版本 ${info.version} 已下载，可以安装` }));

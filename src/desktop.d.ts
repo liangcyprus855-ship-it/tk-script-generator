@@ -14,7 +14,7 @@ declare global {
       downloadUpdate: () => Promise<any>;
       installUpdate: () => Promise<any>;
       openExternal: (url: string) => Promise<any>;
-      onUpdateStatus: (callback: (payload: { state: string; message?: string; version?: string; percent?: number }) => void) => () => void;
+      onUpdateStatus: (callback: (payload: { state: string; message?: string; version?: string; percent?: number; releaseNotes?: string }) => void) => () => void;
     };
   }
 }

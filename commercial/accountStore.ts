@@ -82,7 +82,7 @@ export class AccountStore {
   quote(duration: string) {
     const seconds = duration.startsWith("20-30") ? 30 : Number(duration.match(/^(\d+)/)?.[1] || 0);
     if (![10, 15, 30, 45, 60].includes(seconds)) throw Object.assign(new Error("请选择有效的脚本时长"), { status: 400 });
-    return { duration, credits: Math.ceil(seconds / 5) * 2 };
+    return { duration, credits: Math.ceil(seconds / 5) };
   }
 
   consume(userId: string, amount: number, description: string, reference: string) {

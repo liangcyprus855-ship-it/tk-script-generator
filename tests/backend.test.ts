@@ -51,7 +51,7 @@ test('commercial account foundation registers, authenticates, quotes and persist
     assert.equal(loggedIn.response.status, 200);
     const me = await (await fetch(backend.url + '/api/account/me', { headers: { Authorization: `Bearer ${loggedIn.data.token}` } })).json();
     assert.equal(me.user.email, 'creator@example.com');
-    assert.deepEqual((await post('/api/billing/quote', { duration: '60秒' })).data, { duration: '60秒', credits: 24 });
+  assert.deepEqual((await post('/api/billing/quote', { duration: '60秒' })).data, { duration: '60秒', credits: 12 });
     assert.equal((await fetch(backend.url + '/api/account/ledger', { headers: { Authorization: `Bearer ${loggedIn.data.token}` } })).status, 200);
   } finally { await backend.close(); rmSync(root, { recursive: true }); rmSync(dataDir, { recursive: true }); }
 });
@@ -105,9 +105,9 @@ test('commercial generation consumes credits on success and refunds them on mode
     const headers = { 'Content-Type': 'application/json' }; const registered = await (await fetch(backend.url + '/api/account/register', { method: 'POST', headers, body: JSON.stringify({ email: 'charge@example.com', password: 'strong-pass-123' }) })).json(); const auth = { ...headers, Authorization: `Bearer ${registered.token}` };
     const request = { product: '杯子', targetAudience: '成人', features: '便携', duration: '10秒', index: 1, billingRef: 'success-1', modelConfig: { provider: 'openai', model: 'client-value', apiKey: 'client-key' } };
     assert.equal((await fetch(backend.url + '/api/generate-one', { method: 'POST', headers: auth, body: JSON.stringify(request) })).status, 200);
-    let me = await (await fetch(backend.url + '/api/account/me', { headers: auth })).json(); assert.equal(me.user.credits, 98);
+    let me = await (await fetch(backend.url + '/api/account/me', { headers: auth })).json(); assert.equal(me.user.credits, 99);
     fail = true; const failed = await fetch(backend.url + '/api/generate-one', { method: 'POST', headers: auth, body: JSON.stringify({ ...request, billingRef: 'failure-1' }) }); assert.equal(failed.status, 500);
-    me = await (await fetch(backend.url + '/api/account/me', { headers: auth })).json(); assert.equal(me.user.credits, 98);
+    me = await (await fetch(backend.url + '/api/account/me', { headers: auth })).json(); assert.equal(me.user.credits, 99);
   } finally { await backend.close(); rmSync(root, { recursive: true }); rmSync(dataDir, { recursive: true }); await new Promise<void>(resolve => provider.close(() => resolve())); if (oldProvider === undefined) delete process.env.TK_COMMERCIAL_PROVIDER; else process.env.TK_COMMERCIAL_PROVIDER = oldProvider; if (oldBase === undefined) delete process.env.TK_COMMERCIAL_BASE_URL; else process.env.TK_COMMERCIAL_BASE_URL = oldBase; delete process.env.TK_COMMERCIAL_MODEL; }
 });
 test('settings survive restart and API keys are encrypted on disk', () => {

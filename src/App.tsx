@@ -208,11 +208,11 @@ const PRODUCT_CATEGORIES: Record<string, Record<string, string[]>> = {
 };
 
 const DURATION_OPTIONS = [
-  "10秒 (极限短平快/极速促单)",
-  "15秒 (极速引流/强视觉)",
-  "20-30秒 (标准爆款展示)",
-  "45秒 (深度痛点解析)",
-  "60秒 (完整沉浸式评测)"
+  "10秒 · 2积分 (极限短平快/极速促单)",
+  "15秒 · 3积分 (极速引流/强视觉)",
+  "20-30秒 · 6积分 (标准爆款展示)",
+  "45秒 · 9积分 (深度痛点解析)",
+  "60秒 · 12积分 (完整沉浸式评测)"
 ];
 
 export default function App({ initialSettings = {} }: { initialSettings?: any }) {
@@ -282,7 +282,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const [useCustomCloudModelInput, setUseCustomCloudModelInput] = useState(false);
   const [visualFacts, setVisualFacts] = useState<ProductVisualFacts | null>(null);
   const [desktopVersion, setDesktopVersion] = useState<string>("");
-  const [updateStatus, setUpdateStatus] = useState<{ state: string; message?: string; version?: string; percent?: number } | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<{ state: string; message?: string; version?: string; percent?: number; releaseNotes?: string } | null>(null);
   const [account, setAccount] = useState<{ id: string; email: string; credits: number } | null>(null);
   const [accountToken, setAccountToken] = useState("");
   const [cloudAccountToken, setCloudAccountToken] = useState("");
@@ -902,15 +902,15 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
             <button type="button" onClick={() => setAccountOpen((value) => !value)} className="text-xs font-medium px-2.5 py-1.5 rounded-full border flex items-center gap-1.5 bg-white text-slate-600 border-slate-200 hover:border-slate-300">
               <UserRound className="w-3.5 h-3.5" /> {account ? `${account.email} · ${account.credits} 积分` : "登录 / 注册"}
             </button>
-            {window.tkDesktop && (
+            {window.tkDesktop && updateStatus && ["available", "downloading", "downloaded"].includes(updateStatus.state) && (
               <button
                 type="button"
                 onClick={handleDesktopUpdateAction}
                 className={`text-xs font-medium px-2.5 py-1.5 rounded-full border flex items-center gap-1.5 transition ${updateStatus?.state === "available" || updateStatus?.state === "downloaded" ? "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100" : updateStatus?.state === "error" ? "bg-rose-50 text-rose-700 border-rose-200" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"}`}
-                title={updateStatus?.message || "检查软件更新"}
+                title={updateStatus.releaseNotes || updateStatus.message || "有新版本可用"}
               >
                 {updateStatus?.state === "downloaded" ? <RotateCcw className="w-3.5 h-3.5" /> : updateStatus?.state === "downloading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                {updateStatus?.state === "available" ? `更新 ${updateStatus.version || ""}` : updateStatus?.state === "downloading" ? `${updateStatus.percent || 0}%` : updateStatus?.state === "downloaded" ? "安装更新" : `V${desktopVersion || "1.0.0"}`}
+                {updateStatus.state === "available" ? `更新 ${updateStatus.version || ""}` : updateStatus.state === "downloading" ? `${updateStatus.percent || 0}%` : "安装更新"}
               </button>
             )}
             {!commercialMode && <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${modelStatus?.ok ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-slate-100 text-slate-600 border-slate-200"}`}>
@@ -924,6 +924,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
         </div>}
         {manualRecharge && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><div className="flex items-center justify-between"><h3 className="font-semibold">支付宝个人码充值</h3><button type="button" className="text-slate-400" onClick={() => setManualRecharge(null)}>×</button></div><p className="mt-2 text-sm text-slate-600">请支付 <b>{(manualRecharge.amountFen / 100).toFixed(2)} 元</b>，到账后增加 {manualRecharge.credits} 积分。</p><img src="/payment/alipay-personal.jpg" alt="支付宝个人收款码" className="mx-auto my-4 h-64 w-64 object-contain" /><p className="text-xs text-slate-500">订单号：{manualRecharge.orderId}</p><p className="mt-2 text-[11px] text-slate-500">当前登录账户已自动关联，备注填写付款人昵称和付款时间即可。</p><Input placeholder="付款人昵称 / 付款时间" value={manualProofNote} onChange={(e) => setManualProofNote(e.target.value)} /><Button type="button" className="mt-3 w-full" disabled={billingBusy || !manualProofNote.trim()} onClick={submitManualProof}>{billingBusy ? "提交中…" : "我已付款，提交审核"}</Button><p className="mt-2 text-[10px] text-slate-400">管理员确认后到账；个人收款码不支持自动到账。</p></div></div>}
         {wechatRecharge && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><div className="flex items-center justify-between"><h3 className="font-semibold">微信扫码充值</h3><button type="button" className="text-slate-400" onClick={() => setWechatRecharge(null)}>×</button></div><p className="mt-2 text-sm text-slate-600">请支付 <b>{(wechatRecharge.amountFen / 100).toFixed(2)} 元</b>，到账后增加 {wechatRecharge.credits} 积分。</p><img src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(wechatRecharge.codeUrl)}`} alt="微信支付二维码" className="mx-auto my-4 h-60 w-60" /><p className="break-all text-[10px] text-slate-400">订单号：{wechatRecharge.orderId}</p><p className="mt-2 text-xs text-emerald-600">扫码完成后请等待几秒，积分会自动更新。</p></div></div>}
+        {updateStatus?.state === "available" && <div className="max-w-5xl mx-auto px-4 pb-3"><div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs text-indigo-900"><div className="flex items-center justify-between gap-3"><div><b>发现新版本 {updateStatus.version}</b><p className="mt-1 whitespace-pre-wrap text-indigo-700">{updateStatus.releaseNotes || "包含稳定性和功能改进。"}</p></div><Button type="button" onClick={handleDesktopUpdateAction}>立即更新</Button></div></div></div>}
       </header>
 
       <main className="max-w-5xl mx-auto px-4 mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
