@@ -1385,7 +1385,9 @@ export async function startServer(options: { port?: number; development?: boolea
   const resolveModelConfig = (requested: ModelConfig): ModelConfig => commercialMode ? {
     provider: (process.env.TK_COMMERCIAL_PROVIDER as ModelConfig["provider"]) || "openai",
     baseUrl: process.env.TK_COMMERCIAL_BASE_URL || "https://api.xiaomimimo.com/v1",
-    model: process.env.TK_COMMERCIAL_MODEL || "mimo-v2.5-pro",
+    // MiMo-V2.5-Pro is used for script writing; the full-modality MiMo-V2.5
+    // model is selected automatically when the request is an image-analysis step.
+    model: process.env.TK_COMMERCIAL_MODEL || (requested.inputMode === "multimodal" ? "mimo-v2.5" : "mimo-v2.5-pro"),
     apiKey: process.env.TK_COMMERCIAL_API_KEY || "",
     cloudProviderId: process.env.TK_COMMERCIAL_CLOUD_PROVIDER || "xiaomi-mimo",
     inputMode: process.env.TK_COMMERCIAL_INPUT_MODE === "multimodal" ? "multimodal" : "text",

@@ -93,7 +93,7 @@ app.whenReady().then(async () => {
   const bootstrapMimoKey = String(process.env.TK_MIMO_BOOTSTRAP_KEY || '').trim();
   if (bootstrapMimoKey) {
     const current = settings.load();
-    settings.save({ ...current, modelConfig: { provider: 'openai', cloudProviderId: 'xiaomi-mimo', baseUrl: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.5-pro', apiKey: bootstrapMimoKey, inputMode: 'text' }, useSameModelForVision: false });
+    settings.save({ ...current, modelConfig: { provider: 'openai', cloudProviderId: 'xiaomi-mimo', baseUrl: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.5-pro', apiKey: bootstrapMimoKey, inputMode: 'text' }, visionModelConfig: { provider: 'openai', cloudProviderId: 'xiaomi-mimo', baseUrl: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.5', apiKey: bootstrapMimoKey, inputMode: 'multimodal' }, useSameModelForVision: false });
     delete process.env.TK_MIMO_BOOTSTRAP_KEY;
     logger('MiMo cloud model settings encrypted into userData');
   }
