@@ -1387,7 +1387,7 @@ export async function startServer(options: { port?: number; development?: boolea
     baseUrl: process.env.TK_COMMERCIAL_BASE_URL || "https://api.xiaomimimo.com/v1",
     // MiMo-V2.5-Pro is used for script writing; the full-modality MiMo-V2.5
     // model is selected automatically when the request is an image-analysis step.
-    model: process.env.TK_COMMERCIAL_MODEL || (requested.inputMode === "multimodal" ? "mimo-v2.5" : "mimo-v2.5-pro"),
+    model: "mimo-v2.5",
     apiKey: process.env.TK_COMMERCIAL_API_KEY || "",
     cloudProviderId: process.env.TK_COMMERCIAL_CLOUD_PROVIDER || "xiaomi-mimo",
     inputMode: process.env.TK_COMMERCIAL_INPUT_MODE === "multimodal" ? "multimodal" : "text",
@@ -1403,10 +1403,15 @@ export async function startServer(options: { port?: number; development?: boolea
     const token = String(req.headers["x-cloud-account-token"] || "").trim();
     if (!token) return false;
     const base = String(process.env.TK_COMMERCIAL_CLOUD_API_URL || "https://tk-script-generator-api.liangcyprus855.chatgpt.site").replace(/\/+$/, "");
-    const response = await fetch(`${base}/api/billing/${action}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ amount, reference, description }) });
+    const response = await fetch(`${base}/api/billing/${action}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ amountFen: amount * 10, reference, description }) });
     const data: any = await response.json().catch(() => ({}));
-    if (!response.ok) throw Object.assign(new Error(data.error || `云端积分${action === "consume" ? "扣除" : "退回"}失败`), { status: response.status });
+    if (!response.ok) throw Object.assign(new Error(data.error || `云端余额${action === "consume" ? "扣除" : "退回"}失败`), { status: response.status });
     return true;
+  };
+  const recordCloudGeneration = async (req: express.Request, record: { reference: string; amount: number; duration: string; content: unknown }) => {
+    const token = String(req.headers["x-cloud-account-token"] || "").trim(); if (!token) return;
+    const base = String(process.env.TK_COMMERCIAL_CLOUD_API_URL || "https://tk-script-generator-api.liangcyprus855.chatgpt.site").replace(/\/+$/, "");
+    await fetch(`${base}/api/generations`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ reference: record.reference, amountFen: record.amount * 10, duration: record.duration, content: record.content }) });
   };
   const chargeGeneration = async (req: express.Request, duration: string, reference: string, split = 1, sequence = 1) => {
     const user = requireCommercialUser(req);
@@ -1447,7 +1452,8 @@ export async function startServer(options: { port?: number; development?: boolea
       const response = await fetch(`${cloudBase}/api/account/me`, { headers: { Authorization: `Bearer ${cloudToken}` } });
       const data: any = await response.json().catch(() => ({}));
       if (!response.ok || !data.user || data.user.email !== localUser.email) return res.status(401).json({ error: "云端账户校验失败" });
-      return res.json({ user: accountStore.setCredits(localUser.id, Number(data.user.credits)) });
+      const balanceFen = Number(data.user.balanceFen ?? Number(data.user.credits || 0) * 10);
+      return res.json({ user: accountStore.setCredits(localUser.id, Math.floor(balanceFen / 10)) });
     } catch (error: any) { return res.status(error.status || 502).json({ error: error.message || "云端余额同步失败" }); }
   });
   app.get("/api/account/ledger", (req, res) => {
@@ -1628,6 +1634,7 @@ export async function startServer(options: { port?: number; development?: boolea
       charge = await chargeGeneration(req, duration, `${String(body.billingRef || crypto.randomUUID())}:script:${index}`, 3, index);
       const prompt = buildPrompt(body);
       const [script] = await generateTimed(duration, async correction => [await generateOneWithOllama(config, prompt + correction, body.visualFacts ? undefined : body.image, index, style, duration)]);
+      await recordCloudGeneration(req, { reference: charge?.reference || "", amount: charge?.amount || 0, duration, content: script });
       return res.json({ script, index, total: 3, model: { provider: config.provider, model: config.model } });
     } catch (error: any) {
       if (charge) { accountStore.refund(charge.userId, charge.amount, "脚本生成失败，积分已退回", charge.reference); if (charge.cloudCharged) await cloudBillingRequest(req, "refund", charge.amount, charge.reference, "脚本生成失败，积分已退回"); }
@@ -1660,6 +1667,7 @@ export async function startServer(options: { port?: number; development?: boolea
       else if (config.provider === "anthropic") return generateWithAnthropic(config, adjustedPrompt, generationImage);
       else throw new Error("不支持的模型提供方");
       });
+      await recordCloudGeneration(req, { reference: charge?.reference || "", amount: charge?.amount || 0, duration, content: scripts.slice(0, 3) });
       res.json({ scripts: scripts.slice(0, 3), model: { provider: config.provider, model: config.model } });
     } catch (error: any) {
       if (charge) { accountStore.refund(charge.userId, charge.amount, "脚本生成失败，积分已退回", charge.reference); if (charge.cloudCharged) await cloudBillingRequest(req, "refund", charge.amount, charge.reference, "脚本生成失败，积分已退回"); }

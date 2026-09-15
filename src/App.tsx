@@ -208,11 +208,11 @@ const PRODUCT_CATEGORIES: Record<string, Record<string, string[]>> = {
 };
 
 const DURATION_OPTIONS = [
-  "10秒 · 2积分 (极限短平快/极速促单)",
-  "15秒 · 3积分 (极速引流/强视觉)",
-  "20-30秒 · 6积分 (标准爆款展示)",
-  "45秒 · 9积分 (深度痛点解析)",
-  "60秒 · 12积分 (完整沉浸式评测)"
+  "10秒 · ¥0.20 (极限短平快/极速促单)",
+  "15秒 · ¥0.30 (极速引流/强视觉)",
+  "20-30秒 · ¥0.60 (标准爆款展示)",
+  "45秒 · ¥0.90 (深度痛点解析)",
+  "60秒 · ¥1.20 (完整沉浸式评测)"
 ];
 
 export default function App({ initialSettings = {} }: { initialSettings?: any }) {
@@ -283,7 +283,8 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const [visualFacts, setVisualFacts] = useState<ProductVisualFacts | null>(null);
   const [desktopVersion, setDesktopVersion] = useState<string>("");
   const [updateStatus, setUpdateStatus] = useState<{ state: string; message?: string; version?: string; percent?: number; releaseNotes?: string } | null>(null);
-  const [account, setAccount] = useState<{ id: string; email: string; credits: number } | null>(null);
+  const [account, setAccount] = useState<{ id: string; email: string; balanceFen?: number; balanceYuan?: string; credits?: number } | null>(null);
+  const [generationRecords, setGenerationRecords] = useState<any[]>([]);
   const [accountToken, setAccountToken] = useState("");
   const [cloudAccountToken, setCloudAccountToken] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
@@ -335,6 +336,11 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     const timer = window.setInterval(refreshAccount, 5000);
     return () => window.clearInterval(timer);
   }, [commercialMode, cloudAccountToken, accountToken]);
+
+  const refreshGenerationRecords = () => {
+    if (!commercialMode || !cloudAccountToken) return;
+    billingFetch("/api/generations", { headers: { Authorization: `Bearer ${cloudAccountToken}` } }).then((response) => response.ok ? response.json() : null).then((data) => { if (Array.isArray(data?.records)) setGenerationRecords(data.records); }).catch(() => {});
+  };
 
   const handleDesktopUpdateAction = async () => {
     if (!window.tkDesktop) return;
@@ -403,7 +409,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const rechargePersonalAlipayCustom = async () => {
     if (!accountToken) return;
     const amountYuan = Number(customRechargeAmount);
-    if (!Number.isFinite(amountYuan) || amountYuan < 2) { setAccountError("个人码充值最低 2 元，按 1 元=10 积分计算。"); return; }
+    if (!Number.isFinite(amountYuan) || amountYuan < 2) { setAccountError("个人码充值最低 2 元，按人民币余额充值。"); return; }
     setBillingBusy(true); setAccountError("");
     try {
       const amountFen = Math.round(amountYuan * 100);
@@ -422,7 +428,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
       const response = await billingFetch(`/api/billing/orders/${manualRecharge.orderId}/submit-proof`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${cloudAccountToken || accountToken}` }, body: JSON.stringify({ note: manualProofNote }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "提交失败");
-      setManualRecharge(null); setManualProofNote(""); setAccountError("付款备注已提交，管理员确认后会增加积分。");
+      setManualRecharge(null); setManualProofNote(""); setAccountError("付款备注已提交，等待后台确认到账。");
     } catch (error: any) { setAccountError(error.message || "提交失败"); }
     finally { setBillingBusy(false); }
   };
@@ -882,6 +888,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     } finally {
       if (accountToken) {
         billingFetch("/api/account/me", { headers: { Authorization: `Bearer ${cloudAccountToken || accountToken}` } }).then((response) => response.ok ? response.json() : null).then((data) => { if (data?.user) setAccount(data.user); }).catch(() => {});
+        refreshGenerationRecords();
       }
       setGenerationStep(0);
       setLoading(false);
@@ -916,7 +923,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
           </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setAccountOpen((value) => !value)} className="text-xs font-medium px-2.5 py-1.5 rounded-full border flex items-center gap-1.5 bg-white text-slate-600 border-slate-200 hover:border-slate-300">
-              <UserRound className="w-3.5 h-3.5" /> {account ? `${account.email} · ${account.credits} 积分` : "登录 / 注册"}
+              <UserRound className="w-3.5 h-3.5" /> {account ? `${account.email} · ¥${account.balanceYuan || ((account.balanceFen || 0) / 100).toFixed(2)}` : "登录 / 注册"}
             </button>
             {window.tkDesktop && updateStatus && ["available", "downloading", "downloaded"].includes(updateStatus.state) && (
               <button
@@ -936,10 +943,10 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
           </div>
         </div>
           {accountOpen && <div className="absolute right-4 top-14 w-80 rounded-xl border border-slate-200 bg-white p-4 shadow-xl z-20">
-          {account ? <div className="space-y-3 text-sm"><div className="font-semibold">账户中心</div><div className="text-slate-600">当前余额：<span className="font-bold text-indigo-600">{account.credits} 积分</span></div><div><div className="text-xs font-medium text-slate-600 mb-2">微信扫码充值</div><div className="grid grid-cols-3 gap-1.5">{[["starter", "9.9元 / 100"], ["creator", "39.9元 / 500"], ["studio", "99.9元 / 1500"]].map(([id, label]) => <button key={id} type="button" disabled={billingBusy} onClick={() => rechargeWechat(id)} className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-700 disabled:opacity-50">{label}</button>)}</div><p className="mt-1 text-[10px] text-slate-400">微信支付成功后自动到账；如果暂时无法使用，可选支付宝人工审核。</p><div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50 p-2"><div className="text-[11px] font-medium text-indigo-800">支付宝个人码：1元=10积分，2元起充</div><div className="mt-1 flex gap-1"><Input className="h-8 text-xs" type="number" min="2" step="0.1" value={customRechargeAmount} onChange={(e) => setCustomRechargeAmount(e.target.value)} /><button type="button" disabled={billingBusy} onClick={rechargePersonalAlipayCustom} className="whitespace-nowrap rounded-md bg-indigo-600 px-2 text-[11px] text-white disabled:opacity-50">生成付款码</button></div></div></div>{accountError && <p className="text-xs text-rose-600">{accountError}</p>}<button type="button" className="text-xs text-slate-500 underline" onClick={() => { setAccount(null); setAccountToken(""); setCloudAccountToken(""); window.tkDesktop?.clearAuth?.(); }}>退出登录</button></div> : <form onSubmit={submitAccount} className="space-y-3"><div className="flex items-center justify-between"><span className="font-semibold">{accountMode === "login" ? "登录账户" : "注册账户"}</span><button type="button" className="text-xs text-indigo-600" onClick={() => { setAccountMode(accountMode === "login" ? "register" : "login"); setAccountError(""); }}>{accountMode === "login" ? "注册新账户" : "返回登录"}</button></div><Input type="email" placeholder="邮箱" value={accountEmail} onChange={(e) => setAccountEmail(e.target.value)} required /><Input type="password" placeholder="至少 8 位密码" value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} minLength={8} required />{accountError && <p className="text-xs text-rose-600">{accountError}</p>}<Button type="submit" className="w-full" disabled={accountBusy}>{accountBusy ? "处理中…" : accountMode === "login" ? "登录" : "注册并领取 100 积分"}</Button></form>}
+          {account ? <div className="space-y-3 text-sm"><div className="font-semibold">账户中心</div><div className="text-slate-600">当前余额：<b className="text-indigo-600">¥{account.balanceYuan || ((account.balanceFen || 0) / 100).toFixed(2)}</b></div><div className="rounded-md bg-slate-50 p-2"><div className="text-[11px] font-medium text-slate-600">最近生成记录</div>{generationRecords.slice(0,3).map((record) => <details key={record.id} className="mt-1 text-[10px] text-slate-500"><summary className="flex cursor-pointer items-center justify-between gap-2"><span>{record.duration}</span><span>¥{record.amountYuan}</span></summary><pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap text-[9px] text-slate-400">{JSON.stringify(record.content, null, 2)}</pre></details>)}{generationRecords.length === 0 && <div className="mt-1 text-[10px] text-slate-400">暂无记录</div>}</div><div><div className="text-xs font-medium text-slate-600 mb-2">微信扫码充值</div><div className="grid grid-cols-3 gap-1.5">{[["starter", "¥9.90"], ["creator", "¥39.90"], ["studio", "¥99.90"]].map(([id, label]) => <button key={id} type="button" disabled={billingBusy} onClick={() => rechargeWechat(id)} className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1.5 text-[11px] text-emerald-700 disabled:opacity-50">{label}</button>)}</div><p className="mt-1 text-[10px] text-slate-400">微信支付成功后自动到账；如果暂时无法使用，可选支付宝人工审核。</p><div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50 p-2"><div className="text-[11px] font-medium text-indigo-800">支付宝个人码：按人民币余额充值，2元起充</div><div className="mt-1 flex gap-1"><Input className="h-8 text-xs" type="number" min="2" step="0.1" value={customRechargeAmount} onChange={(e) => setCustomRechargeAmount(e.target.value)} /><button type="button" disabled={billingBusy} onClick={rechargePersonalAlipayCustom} className="whitespace-nowrap rounded-md bg-indigo-600 px-2 text-[11px] text-white disabled:opacity-50">生成付款码</button></div></div></div>{accountError && <p className="text-xs text-rose-600">{accountError}</p>}<button type="button" className="text-xs text-slate-500 underline" onClick={() => { setAccount(null); setAccountToken(""); setCloudAccountToken(""); window.tkDesktop?.clearAuth?.(); }}>退出登录</button></div> : <form onSubmit={submitAccount} className="space-y-3"><div className="flex items-center justify-between"><span className="font-semibold">{accountMode === "login" ? "登录账户" : "注册账户"}</span><button type="button" className="text-xs text-indigo-600" onClick={() => { setAccountMode(accountMode === "login" ? "register" : "login"); setAccountError(""); }}>{accountMode === "login" ? "注册新账户" : "返回登录"}</button></div><Input type="email" placeholder="邮箱" value={accountEmail} onChange={(e) => setAccountEmail(e.target.value)} required /><Input type="password" placeholder="至少 8 位密码" value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} minLength={8} required />{accountError && <p className="text-xs text-rose-600">{accountError}</p>}<Button type="submit" className="w-full" disabled={accountBusy}>{accountBusy ? "处理中…" : accountMode === "login" ? "登录" : "注册并领取 ¥10.00 余额"}</Button></form>}
         </div>}
-        {manualRecharge && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><div className="flex items-center justify-between"><h3 className="font-semibold">支付宝个人码充值</h3><button type="button" className="text-slate-400" onClick={() => setManualRecharge(null)}>×</button></div><p className="mt-2 text-sm text-slate-600">请支付 <b>{(manualRecharge.amountFen / 100).toFixed(2)} 元</b>，到账后增加 {manualRecharge.credits} 积分。</p><img src="/payment/alipay-personal.jpg" alt="支付宝个人收款码" className="mx-auto my-4 h-64 w-64 object-contain" /><p className="text-xs text-slate-500">订单号：{manualRecharge.orderId}</p><p className="mt-2 text-[11px] text-slate-500">当前登录账户已自动关联，备注填写付款人昵称和付款时间即可。</p><Input placeholder="付款人昵称 / 付款时间" value={manualProofNote} onChange={(e) => setManualProofNote(e.target.value)} /><Button type="button" className="mt-3 w-full" disabled={billingBusy || !manualProofNote.trim()} onClick={submitManualProof}>{billingBusy ? "提交中…" : "我已付款，提交审核"}</Button><p className="mt-2 text-[10px] text-slate-400">管理员确认后到账；个人收款码不支持自动到账。</p></div></div>}
-        {wechatRecharge && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><div className="flex items-center justify-between"><h3 className="font-semibold">微信扫码充值</h3><button type="button" className="text-slate-400" onClick={() => setWechatRecharge(null)}>×</button></div><p className="mt-2 text-sm text-slate-600">请支付 <b>{(wechatRecharge.amountFen / 100).toFixed(2)} 元</b>，到账后增加 {wechatRecharge.credits} 积分。</p><img src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(wechatRecharge.codeUrl)}`} alt="微信支付二维码" className="mx-auto my-4 h-60 w-60" /><p className="break-all text-[10px] text-slate-400">订单号：{wechatRecharge.orderId}</p><p className="mt-2 text-xs text-emerald-600">扫码完成后请等待几秒，积分会自动更新。</p></div></div>}
+        {manualRecharge && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><div className="flex items-center justify-between"><h3 className="font-semibold">支付宝个人码充值</h3><button type="button" className="text-slate-400" onClick={() => setManualRecharge(null)}>×</button></div><p className="mt-2 text-sm text-slate-600">请支付 <b>{(manualRecharge.amountFen / 100).toFixed(2)} 元</b>，到账后增加 ¥{(manualRecharge.amountFen / 100).toFixed(2)} 余额。</p><img src="/payment/alipay-personal.jpg" alt="支付宝个人收款码" className="mx-auto my-4 h-64 w-64 object-contain" /><p className="text-xs text-slate-500">订单号：{manualRecharge.orderId}</p><p className="mt-2 text-[11px] text-slate-500">当前登录账户已自动关联，备注填写付款人昵称和付款时间即可。</p><Input placeholder="付款人昵称 / 付款时间" value={manualProofNote} onChange={(e) => setManualProofNote(e.target.value)} /><Button type="button" className="mt-3 w-full" disabled={billingBusy || !manualProofNote.trim()} onClick={submitManualProof}>{billingBusy ? "提交中…" : "我已付款，提交审核"}</Button><p className="mt-2 text-[10px] text-slate-400">管理员确认后到账；个人收款码不支持自动到账。</p></div></div>}
+        {wechatRecharge && <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/50 p-4"><div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"><div className="flex items-center justify-between"><h3 className="font-semibold">微信扫码充值</h3><button type="button" className="text-slate-400" onClick={() => setWechatRecharge(null)}>×</button></div><p className="mt-2 text-sm text-slate-600">请支付 <b>{(wechatRecharge.amountFen / 100).toFixed(2)} 元</b>，到账后增加 ¥{(wechatRecharge.amountFen / 100).toFixed(2)} 余额。</p><img src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(wechatRecharge.codeUrl)}`} alt="微信支付二维码" className="mx-auto my-4 h-60 w-60" /><p className="break-all text-[10px] text-slate-400">订单号：{wechatRecharge.orderId}</p><p className="mt-2 text-xs text-emerald-600">扫码完成后请等待几秒，余额会自动更新。</p></div></div>}
         {updateStatus?.state === "available" && <div className="max-w-5xl mx-auto px-4 pb-3"><div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs text-indigo-900"><div className="flex items-center justify-between gap-3"><div><b>发现新版本 {updateStatus.version}</b><p className="mt-1 whitespace-pre-wrap text-indigo-700">{updateStatus.releaseNotes || "包含稳定性和功能改进。"}</p></div><Button type="button" onClick={handleDesktopUpdateAction}>立即更新</Button></div></div></div>}
       </header>
 
