@@ -19,7 +19,7 @@ test('dynamic ports, health, production assets, API validation and shutdown in C
     const address = first.server.address();
     assert.ok(address && typeof address !== 'string');
     assert.equal(address.address, '127.0.0.1');
-    assert.deepEqual(await (await fetch(first.url + '/api/health')).json(), { ok: true, version: '1.0.3' });
+    assert.deepEqual(await (await fetch(first.url + '/api/health')).json(), { ok: true, version: '1.0.4' });
     assert.match(await (await fetch(first.url)).text(), /原有 UI/);
     for (const route of ['generate', 'generate-one', 'analyze-product-image']) {
       const response = await fetch(first.url + '/api/' + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });

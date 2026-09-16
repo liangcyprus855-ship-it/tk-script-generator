@@ -8,7 +8,7 @@ import { Loader2, Copy, CheckCircle2, Sparkles, Video, Play, Type, Upload, X, Gl
 export const REGION_OPTIONS = [
   {
     id: "美区 (United States)",
-    name: "🇺🇸 美区 (United States)",
+    name: "美区 (United States)",
     badge: "美式英语 · 快剪痛点反差 · TikTok热梗"
   },
   {
@@ -919,7 +919,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const formatScriptForClipboard = (script: ScriptOption) => {
     let text = `【目标区域】${formData.region}\n【标题】${script.title}\n【风格】${script.style}\n【钩子解析】${script.hook}\n\n【详细脚本】\n`;
     (Array.isArray(script.script) ? script.script : []).forEach((s) => {
-      text += `[${s.timestamp}]\n🎥 画面：${s.visual}\n🎙️ 声音：${s.audio}\n\n`;
+      text += `[${s.timestamp}]\n画面：${s.visual}\n声音：${s.audio}\n\n`;
     });
     text += `【引导转化(CTA)】${script.cta}`;
     return text;
@@ -1310,7 +1310,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
                   ))}
                 </Select>
                 <div className="text-xs text-indigo-700 bg-indigo-50/90 px-3 py-2 rounded-lg border border-indigo-100 flex items-center gap-1.5">
-                  <span className="font-medium">✨ 特色：</span>
+                  <span className="font-medium">特色：</span>
                   <span>{REGION_OPTIONS.find((r) => r.id === formData.region)?.badge}</span>
                 </div>
               </div>
