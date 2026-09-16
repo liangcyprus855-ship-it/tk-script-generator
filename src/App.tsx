@@ -750,6 +750,9 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     if (/404|410|not found|does not exist|deprecated|retired|decommission|no longer available|invalid model/.test(lower)) {
       return `脚本模型 ${modelConfig.model} 当前无法调用。它可能已经下线、改名、被服务商移除，或者你的账号没有这个模型的权限。建议点击“读取当前模型”刷新列表；如果列表里仍然存在但持续失败，请改用服务商控制台当前推荐的模型。\n\n原始信息：${raw}`;
     }
+    if (/请先登录|登录状态|账户凭据|account credential/.test(raw)) {
+      return "登录状态已失效或尚未完成同步。请重新登录账户后再生成；余额扣款和生成请求需要同时验证本地与云端账户。";
+    }
     if (/401|403|unauthorized|forbidden|permission|api key|authentication/.test(lower)) {
       return `当前 API Key 无法调用脚本模型 ${modelConfig.model}。请检查 API Key、账号权限、地区节点以及该模型是否已经开通。\n\n原始信息：${raw}`;
     }
@@ -805,6 +808,11 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.product || !formData.targetAudience || !formData.features) return;
+    if (commercialMode && (!accountToken || !cloudAccountToken)) {
+      setGenerationError("登录状态尚未就绪或已失效，请先登录账户后再生成。账户余额和生成扣款必须同时连接云端账户。");
+      setAccountOpen(true);
+      return;
+    }
     if (!commercialMode && !modelConfig.model) {
       alert(modelConfig.provider === "ollama" ? "请先选择一个 Ollama 模型" : "请输入云端模型名称");
       return;
