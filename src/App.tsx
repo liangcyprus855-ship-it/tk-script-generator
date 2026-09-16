@@ -858,7 +858,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
               body: JSON.stringify({ ...requestData, modelConfig, index: i + 1, style: styles[i] }),
             });
             const data: any = await response.json().catch(() => null);
-            if (!response.ok) throw new Error(data?.error || `第 ${i + 1} 套生成失败（HTTP ${response.status}）`);
+            if (!response.ok) throw new Error([data?.error, data?.detail && `上游详情：${data.detail}`, data?.code && `错误代码：${data.code}`].filter(Boolean).join("\n") || `第 ${i + 1} 套生成失败（HTTP ${response.status}）`);
             const item = data?.script;
             if (!item || !Array.isArray(item.script) || !item.script.length) throw new Error(`第 ${i + 1} 套没有返回有效分镜`);
             const safe: ScriptOption = {
@@ -889,7 +889,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
             body: JSON.stringify({ ...requestData, modelConfig }),
           });
           const data: any = await response.json().catch(() => null);
-          if (!response.ok) throw new Error(data?.error || `生成脚本失败（HTTP ${response.status}）`);
+          if (!response.ok) throw new Error([data?.error, data?.detail && `上游详情：${data.detail}`, data?.code && `错误代码：${data.code}`].filter(Boolean).join("\n") || `生成脚本失败（HTTP ${response.status}）`);
           if (!data || !Array.isArray(data.scripts)) throw new Error("AI 返回的数据格式异常：没有收到有效的脚本数组。");
           const safeScripts: ScriptOption[] = data.scripts.filter((item: any) => item && typeof item === "object").map((item: any, index: number) => ({
             title: typeof item.title === "string" ? item.title : `方案 ${index + 1}`,

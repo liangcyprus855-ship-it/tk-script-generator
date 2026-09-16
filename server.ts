@@ -3,7 +3,7 @@ import "dotenv/config";
 import express from "express";
 import path from "path";
 import { createServer } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { GoogleGenAI, Type } from "@google/genai";
 import { ModelConfig, ScriptRequest, OllamaModelInfo, CloudModelInfo, ProductVisualFacts } from "./src/types";
@@ -1397,6 +1397,14 @@ export async function startServer(options: { port?: number; development?: boolea
   const app = express();
   const PORT = options.port ?? 0;
   const accountStore = new AccountStore(options.dataDir || path.join(options.rootDir, ".commercial-data"));
+  const serverLog = (scope: string, error: any) => {
+    try {
+      const logDir = path.join(options.dataDir || path.join(options.rootDir, ".commercial-data"), "logs");
+      mkdirSync(logDir, { recursive: true });
+      const message = String(error?.message || error || "未知错误").replace(/Bearer\s+\S+/gi, "Bearer [redacted]").slice(0, 2000);
+      appendFileSync(path.join(logDir, "server-errors.log"), `${new Date().toISOString()} [${scope}] ${message}\n`);
+    } catch {}
+  };
   const commercialMode = options.commercialMode ?? process.env.TK_COMMERCIAL_MODE === "true";
   const resolveModelConfig = (requested: ModelConfig): ModelConfig => commercialMode ? {
     provider: (process.env.TK_COMMERCIAL_PROVIDER as ModelConfig["provider"]) || "openai",
@@ -1629,6 +1637,7 @@ export async function startServer(options: { port?: number; development?: boolea
       const visualFacts = await analyzeProductImage(config, body.product || "", body.image);
       return res.json({ visualFacts, model: { provider: config.provider, model: config.model } });
     } catch (error: any) {
+      serverLog("analyze-product-image", error);
       console.error("Error analyzing product image:", error);
       const config = (req.body?.modelConfig || { provider: "openai", model: "" }) as ModelConfig;
       const explained = explainModelServiceError(error, config);
@@ -1654,6 +1663,7 @@ export async function startServer(options: { port?: number; development?: boolea
       return res.json({ script, index, total: 3, model: { provider: config.provider, model: config.model } });
     } catch (error: any) {
       if (charge) { accountStore.refund(charge.userId, charge.amount, "脚本生成失败，积分已退回", charge.reference); if (charge.cloudCharged) await cloudBillingRequest(req, "refund", charge.amount, charge.reference, "脚本生成失败，积分已退回"); }
+      serverLog("generate-one", error);
       console.error("Error generating one Ollama script:", error);
       const config = (req.body?.modelConfig || { provider: "ollama", model: "" }) as ModelConfig;
       const explained = explainModelServiceError(error, config);
@@ -1687,6 +1697,7 @@ export async function startServer(options: { port?: number; development?: boolea
       res.json({ scripts: scripts.slice(0, 3), model: { provider: config.provider, model: config.model } });
     } catch (error: any) {
       if (charge) { accountStore.refund(charge.userId, charge.amount, "脚本生成失败，积分已退回", charge.reference); if (charge.cloudCharged) await cloudBillingRequest(req, "refund", charge.amount, charge.reference, "脚本生成失败，积分已退回"); }
+      serverLog("generate", error);
       console.error("Error generating scripts:", error);
       const config = (req.body?.modelConfig || { provider: "openai", model: "" }) as ModelConfig;
       const explained = explainModelServiceError(error, config);
