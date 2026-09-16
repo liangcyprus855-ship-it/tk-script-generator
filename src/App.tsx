@@ -311,8 +311,8 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   useEffect(() => {
     if (!commercialMode || !window.tkDesktop?.loadAuth) return;
     window.tkDesktop.loadAuth().then((saved) => {
-      if (!saved?.localToken || !saved.cloudToken) return;
-      setAccountToken(saved.localToken);
+      if (!saved?.cloudToken) return;
+      setAccountToken(saved.localToken || "");
       setCloudAccountToken(saved.cloudToken);
       return billingFetch("/api/account/me", { headers: { Authorization: `Bearer ${saved.cloudToken}` } }).then((response) => response.ok ? response.json() : null).then((data) => {
         if (data?.user) setAccount(data.user);
@@ -808,8 +808,8 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.product || !formData.targetAudience || !formData.features) return;
-    if (commercialMode && (!accountToken || !cloudAccountToken)) {
-      setGenerationError("登录状态尚未就绪或已失效，请先登录账户后再生成。账户余额和生成扣款必须同时连接云端账户。");
+    if (commercialMode && !cloudAccountToken) {
+      setGenerationError("云端登录状态尚未就绪或已失效，请先登录账户后再生成。");
       setAccountOpen(true);
       return;
     }
