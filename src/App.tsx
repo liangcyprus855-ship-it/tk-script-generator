@@ -1,5 +1,6 @@
 import React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { quoteDuration } from '../la02-api/pricing.mjs';
 import { Label, Select, Input, Button } from "./components";
 import { AIProvider, ModelConfig, ScriptOption, ScriptRequest, GenerateResponse, OllamaModelInfo, CloudModelInfo, ProductVisualFacts } from "./types";
 import { CLOUD_PROVIDER_PRESETS, getCloudProviderPreset } from "./cloudProviders";
@@ -221,8 +222,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     ? String((import.meta.env as any).VITE_COMMERCIAL_API_BASE_URL || "https://107-173-144-109.nip.io:8443").replace(/\/+$/, "")
     : "";
   const billingFetch = (path: string, init?: RequestInit) => {
-    const isCloudRoute = path.startsWith("/api/account") || path.startsWith("/api/billing");
-    return fetch(commercialMode && isCloudRoute ? `${commercialApiBase}${path}` : path, init);
+    return fetch(commercialMode ? `${commercialApiBase}${path}` : path, { ...init, signal: init?.signal || AbortSignal.timeout(15000) });
   };
   const [mainCategory, setMainCategory] = useState(Object.keys(PRODUCT_CATEGORIES)[0]);
   const [subCategory, setSubCategory] = useState(Object.keys(PRODUCT_CATEGORIES[Object.keys(PRODUCT_CATEGORIES)[0]])[0]);
@@ -302,9 +302,21 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const [customRechargeAmount, setCustomRechargeAmount] = useState("2");
   const [wechatRecharge, setWechatRecharge] = useState<{ orderId: string; amountFen: number; credits: number; codeUrl: string } | null>(null);
   const [manualProofNote, setManualProofNote] = useState("");
+  const [serverJobId, setServerJobId] = useState("");
+  const [serverJobMessage, setServerJobMessage] = useState("");
+  const submittingGeneration = useRef(false);
+  const amountFen = quoteDuration(formData.duration).amountFen;
+  const insufficientBalance = commercialMode && !!account && Number(account.balanceFen ?? 0) < amountFen;
+  const generationDisabled = loading || (commercialMode && (!account || !cloudAccountToken || insufficientBalance));
 
   useEffect(() => {
-    if (!window.tkDesktop) return;
+    if (commercialMode && !cloudAccountToken) {
+      setScripts([]); setGenerationRecords([]); setServerJobId(''); setServerJobMessage(''); setLoading(false);
+    }
+  }, [commercialMode, cloudAccountToken]);
+
+  useEffect(() => {
+    if (!window.tkDesktop || commercialMode) return;
     window.tkDesktop.saveSettings({ modelConfig, visionModelConfig, useSameModelForVision }).catch(error => setModelStatus({ ok: false, message: '配置保存失败：' + error.message }));
   }, [modelConfig, visionModelConfig, useSameModelForVision]);
 
@@ -312,9 +324,13 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     if (!commercialMode || !window.tkDesktop?.loadAuth) return;
     window.tkDesktop.loadAuth().then((saved) => {
       if (!saved?.cloudToken) return;
-      setAccountToken(saved.localToken || "");
+      setAccountToken(saved.cloudToken);
       setCloudAccountToken(saved.cloudToken);
-      return billingFetch("/api/account/me", { headers: { Authorization: `Bearer ${saved.cloudToken}` } }).then((response) => response.ok ? response.json() : null).then((data) => {
+      return billingFetch("/api/account/me", { headers: { Authorization: `Bearer ${saved.cloudToken}` } }).then((response) => {
+        if (response.status === 401) return null;
+        if (!response.ok) throw new Error('账户连接暂时不可用');
+        return response.json();
+      }).then((data) => {
         if (data?.user) setAccount(data.user);
         else { setAccountToken(""); setCloudAccountToken(""); return window.tkDesktop?.clearAuth(); }
       });
@@ -322,9 +338,9 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   }, [commercialMode]);
 
   const effectiveVisionModelConfig = useSameModelForVision ? modelConfig : visionModelConfig;
-  const selectedModelSupportsImage = useSameModelForVision
+  const selectedModelSupportsImage = commercialMode || (useSameModelForVision
     ? modelConfig.inputMode === "multimodal"
-    : Boolean(visionModelConfig.model) && visionModelConfig.inputMode === "multimodal";
+    : Boolean(visionModelConfig.model) && visionModelConfig.inputMode === "multimodal");
 
   useEffect(() => {
     if (!window.tkDesktop) return;
@@ -336,11 +352,55 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
 
   useEffect(() => {
     if (!commercialMode || !cloudAccountToken) return;
-    const refreshAccount = () => billingFetch("/api/account/me", { headers: { Authorization: `Bearer ${cloudAccountToken}` } }).then((response) => response.ok ? response.json() : null).then((data) => { if (data?.user) setAccount(data.user); return fetch("/api/account/sync-cloud", { method: "POST", headers: { Authorization: `Bearer ${accountToken}`, "X-Cloud-Account-Token": cloudAccountToken } }); }).catch(() => {});
+    let active = true;
+    const refreshAccount = async () => {
+      try {
+        const response = await billingFetch('/api/account/me', { headers: { Authorization: `Bearer ${cloudAccountToken}` } });
+        if (!active) return;
+        if (response.status === 401) { setAccount(null); setAccountToken(''); setCloudAccountToken(''); await window.tkDesktop?.clearAuth?.(); return; }
+        if (response.ok) { const data = await response.json(); if (active && data.user) setAccount(data.user); }
+      } catch {}
+    };
     refreshAccount();
     const timer = window.setInterval(refreshAccount, 5000);
-    return () => window.clearInterval(timer);
+    return () => { active = false; window.clearInterval(timer); };
   }, [commercialMode, cloudAccountToken, accountToken]);
+
+  const applyServerJob = (job: any) => {
+    if (job.user) setAccount(job.user);
+    if (job.status === 'running') { setServerJobId(job.jobId); setLoading(true); setServerJobMessage('服务器正在生成，完成后自动显示结果'); return; }
+    setServerJobId(''); setLoading(false); setServerJobMessage('');
+    if (job.status === 'succeeded') { setScripts(job.scripts || []); setGenerationError(null); }
+    if (job.status === 'failed') setGenerationError(job.error || '生成失败，费用已退回');
+    refreshGenerationRecords();
+  };
+  useEffect(() => {
+    if (!commercialMode || !cloudAccountToken) return;
+    let active = true;
+    billingFetch('/api/generation-jobs/latest', { headers: { Authorization: `Bearer ${cloudAccountToken}` } })
+      .then(r => r.ok ? r.json() : null).then(job => { if (active && job && !submittingGeneration.current) applyServerJob(job); }).catch(() => {});
+    refreshGenerationRecords();
+    return () => { active = false; };
+  }, [commercialMode, cloudAccountToken]);
+  useEffect(() => {
+    if (!serverJobId || !cloudAccountToken) return;
+    let active = true, timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const r = await billingFetch(`/api/generation-jobs/${serverJobId}`, { headers: { Authorization: `Bearer ${cloudAccountToken}` } });
+        if (!active) return;
+        if (r.status === 401) { setAccount(null); setAccountToken(''); setCloudAccountToken(''); setLoading(false); setGenerationError('登录已过期，请重新登录后查看生成结果'); return; }
+        if (!r.ok) throw new Error('暂时无法查询生成进度');
+        const job = await r.json();
+        if (!active) return;
+        applyServerJob(job);
+        if (job.status !== 'running') return;
+      } catch { if (active) setServerJobMessage('连接暂时中断，正在恢复；服务器继续处理，请勿重复提交'); }
+      if (active) timer = setTimeout(poll, 2000);
+    };
+    void poll();
+    return () => { active = false; clearTimeout(timer); };
+  }, [serverJobId, cloudAccountToken]);
 
   const refreshGenerationRecords = () => {
     if (!commercialMode || !cloudAccountToken) return;
@@ -367,21 +427,14 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
       const credentials = { email: accountEmail, password: accountPassword, ...(accountMode === "register" ? { verificationCode: accountVerificationCode } : {}) };
       let response = await billingFetch(`/api/account/${accountMode === "login" ? "login" : "register"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(credentials) });
       let data = await response.json().catch(() => ({}));
-      let localResponse = await fetch(`/api/account/${accountMode === "login" ? "login" : "register"}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(credentials) });
-      let localData = await localResponse.json().catch(() => ({}));
-      // 兼容旧版：旧账户可能只存在本机。先用本地凭据验证，再自动注册到云端。
-      if (!response.ok && accountMode === "login" && localResponse.ok) {
-        response = await billingFetch("/api/account/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(credentials) });
-        data = await response.json().catch(() => ({}));
-      }
       if (!response.ok) throw new Error(data.error || "账号或密码不正确");
-      if (!localResponse.ok && accountMode === "login") {
-        localResponse = await fetch("/api/account/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(credentials) });
-        localData = await localResponse.json().catch(() => ({}));
+      if (accountMode === 'register' && !data.token) {
+        response = await billingFetch('/api/account/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(credentials) });
+        data = await response.json();
+        if (!response.ok) throw new Error(data.error || '注册成功，请登录');
       }
-      if (!localResponse.ok) throw new Error(localData.error || "本地生成服务账户同步失败");
-      setCloudAccountToken(data.token); setAccountToken(localData.token); setAccount(data.user); setAccountOpen(false); setAccountPassword("");
-      await window.tkDesktop?.saveAuth?.({ localToken: localData.token, cloudToken: data.token });
+      setCloudAccountToken(data.token); setAccountToken(data.token); setAccount(data.user); setAccountOpen(false); setAccountPassword("");
+      await window.tkDesktop?.saveAuth?.({ localToken: '', cloudToken: data.token });
     } catch (error: any) { setAccountError(error.message || "账户操作失败"); }
     finally { setAccountBusy(false); }
   };
@@ -710,11 +763,11 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   };
 
   useEffect(() => {
-    if (modelConfig.provider === "ollama") loadOllamaModels(true);
+    if (!commercialMode && modelConfig.provider === "ollama") loadOllamaModels(true);
   }, [modelConfig.provider]);
 
   useEffect(() => {
-    if (!useSameModelForVision && visionModelConfig.provider === "ollama") loadVisionOllamaModels(true);
+    if (!commercialMode && !useSameModelForVision && visionModelConfig.provider === "ollama") loadVisionOllamaModels(true);
   }, [useSameModelForVision, visionModelConfig.provider]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -808,6 +861,40 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.product || !formData.targetAudience || !formData.features) return;
+    if (commercialMode) {
+      if (submittingGeneration.current || loading) return;
+      if (!cloudAccountToken || !account) { setAccountOpen(true); setGenerationError('请先登录账户'); return; }
+      if (insufficientBalance) { setGenerationError(`余额不足，本次需要 ¥${(amountFen/100).toFixed(2)}，请先充值`); return; }
+      submittingGeneration.current = true;
+      setLoading(true); setGenerationError(null); setServerJobMessage('正在验证余额并提交生成…');
+      const payload = { region: formData.region, product: formData.product, targetAudience: formData.targetAudience,
+        features: formData.features, duration: formData.duration, image: formData.image, requestId: crypto.randomUUID() };
+      try {
+        let response: Response | undefined;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try { response = await billingFetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cloudAccountToken}` }, body: JSON.stringify(payload) }); break; }
+          catch (err) { if (attempt === 1) throw err; }
+        }
+        const job = await response!.json();
+        if (!response!.ok) {
+          if (response!.status === 401) { setAccount(null); setCloudAccountToken(''); setAccountToken(''); setAccountOpen(true); await window.tkDesktop?.clearAuth?.(); }
+          if (response!.status === 402) {
+            const me = await billingFetch('/api/account/me', { headers: { Authorization: `Bearer ${cloudAccountToken}` } });
+            if (me.ok) setAccount((await me.json()).user);
+          }
+          throw new Error(job.error || '提交生成失败');
+        }
+        setScripts([]); applyServerJob(job);
+      } catch (err: any) {
+        setLoading(false); setServerJobMessage(''); setGenerationError(err.message || '提交失败，请检查网络');
+        // A lost submission response must not lose a charged server task.
+        try {
+          const latest = await billingFetch('/api/generation-jobs/latest', { headers: { Authorization: `Bearer ${cloudAccountToken}` } });
+          if (latest.ok) { const job = await latest.json(); if (job.requestId === payload.requestId || job.status === 'running') applyServerJob(job); }
+        } catch {}
+      } finally { submittingGeneration.current = false; }
+      return;
+    }
     if (commercialMode && !cloudAccountToken) {
       setGenerationError("云端登录状态尚未就绪或已失效，请先登录账户后再生成。");
       setAccountOpen(true);
@@ -1332,7 +1419,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
                 <div className="flex items-center justify-between gap-2">
                   <Label>产品参考图 (可选，AI 将自动识别)</Label>
                   <span className={`text-[11px] px-2 py-1 rounded-full border ${selectedModelSupportsImage ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
-                    {selectedModelSupportsImage ? `视觉模型：${effectiveVisionModelConfig.model || "已配置"} · 可上传` : "请先配置图片识别模型"}
+                    {commercialMode ? '云端 MiMo-V2.5 · 可上传' : selectedModelSupportsImage ? `视觉模型：${effectiveVisionModelConfig.model || "已配置"} · 可上传` : "请先配置图片识别模型"}
                   </span>
                 </div>
                 <div className="flex items-center justify-center w-full">
@@ -1516,17 +1603,20 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
               <Button
                 type="submit"
                 className="w-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
-                disabled={loading}
+                disabled={generationDisabled}
               >
                 {loading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    AI 模型正在深度生成中...
+                    {commercialMode ? '服务器正在生成…' : 'AI 模型正在深度生成中...'}
                   </>
                 ) : (
-                  '智能生成 3 款剧本'
+                  commercialMode && !account ? '请先登录账户' : insufficientBalance ? '余额不足，请先充值' : '智能生成 3 款剧本'
                 )}
               </Button>
+              {commercialMode && <p role="status" className={`mt-2 text-xs ${insufficientBalance ? 'text-rose-600' : 'text-slate-500'}`}>
+                {serverJobMessage || `本次 ¥${(amountFen/100).toFixed(2)} · 当前余额 ¥${((account?.balanceFen || 0)/100).toFixed(2)}。生成失败自动退回。`}
+              </p>}
             </form>
           </div>
         </div>
@@ -1549,17 +1639,17 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
             <div className="h-full min-h-[400px] rounded-2xl flex flex-col items-center justify-center text-center p-8 bg-white border border-slate-200">
               <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-4" />
               <p className="text-slate-800 font-semibold">
-                {generationStep === -1
+                {commercialMode ? 'MiMo-V2.5 正在服务器生成 3 套脚本…' : generationStep === -1
                   ? "正在识别产品图片并锁定视觉事实..."
                   : (modelConfig.provider === "ollama" && generationStep ? `正在生成方案 ${generationStep} / 3` : "AI 正在生成 3 套脚本...")}
               </p>
               <p className="text-slate-500 text-sm mt-2">
-                {generationStep === -1
+                {commercialMode ? '云端 MiMo-V2.5' : generationStep === -1
                   ? `视觉模型：${effectiveVisionModelConfig.model || "未选择"}`
                   : `脚本模型：${modelConfig.model}`} · 已等待 {elapsedSeconds}s
               </p>
               <p className="text-slate-400 text-xs mt-3 max-w-md">
-                {generationStep === -1
+                {commercialMode ? '生成结果和消费记录自动保存在账户中。网络暂时中断后会自动恢复查询，无需重复提交。' : generationStep === -1
                   ? "视觉模型只负责读取图片中的颜色、包装、材质和标签事实；识别完成后，原始图片不会再发给脚本模型。"
                   : "脚本模型只接收产品文字信息和已经锁定的视觉事实，因此可以使用纯文本 Instruct 模型稳定生成脚本。"}
               </p>
@@ -1573,7 +1663,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
                 <div>
                   <h3 className="font-semibold text-rose-900">生成失败</h3>
                   <p className="text-sm text-rose-700 mt-1 whitespace-pre-wrap">{generationError}</p>
-                  <p className="text-xs text-rose-600/80 mt-2">你的产品参数不会被清空，可以直接调整模型或时长后重新生成。</p>
+                  <p className="text-xs text-rose-600/80 mt-2">你的产品参数已保留。请根据上方提示重试，生成失败的费用会自动退回余额。</p>
                 </div>
               </div>
             </div>

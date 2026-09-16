@@ -86,7 +86,7 @@ const PRODUCT_VISUAL_FACTS_SCHEMA = {
   required: ["productType", "packageType", "primaryColor", "secondaryColors", "material", "visibleText", "visibleFeatures", "usageClues", "uncertain"]
 };
 
-function buildVisualAnalysisPrompt(product: string) {
+export function buildVisualAnalysisPrompt(product: string) {
   return `你现在只做产品图片事实识别，不生成广告，不写脚本。\n用户给产品的文字名称是：【${product || "未填写"}】。文字名称只能帮助理解类别，绝对不能覆盖图片中真实可见的外观。\n\n【最高优先级规则】\n1. 只描述图片中能够直接观察到的事实。\n2. 不允许根据常识、产品类别、品牌经验脑补颜色、材质、包装结构、成分、功效或使用方法。\n3. 图片中看不清、被遮挡、无法确定的属性，写“未确认”或放入 uncertain。\n4. 如果文字名称与图片冲突，以图片视觉事实为准。\n5. primaryColor 必须填写主体包装/瓶身最明显的颜色，例如黑色、白色、透明、橙色；无法确认则写“未确认”。\n6. visibleText 只记录图片上真正看得到的文字，模糊看不清不要猜。\n\n只返回严格 JSON 对象，不要 Markdown，不要解释：\n{\n  "productType": "图片可确认的产品类型；不确定则未确认",\n  "packageType": "瓶/盒/袋/罐/管等；不确定则未确认",\n  "primaryColor": "主体包装最明显颜色",\n  "secondaryColors": ["其它明确可见颜色"],\n  "material": "玻璃/塑料/金属等；不确定则未确认",\n  "visibleText": ["图片上可辨认文字"],\n  "visibleFeatures": ["只写可见外观特征，如橙蓝标签、黑色瓶盖"],\n  "usageClues": ["只写图片直接展示出来的使用线索"],\n  "uncertain": ["无法确认、容易误判的项目"]\n}`;
 }
 
@@ -95,7 +95,7 @@ function normalizeStringArray(value: any): string[] {
   return value.map((x) => String(x ?? "").trim()).filter(Boolean).slice(0, 20);
 }
 
-function parseProductVisualFacts(raw: string): ProductVisualFacts {
+export function parseProductVisualFacts(raw: string): ProductVisualFacts {
   if (!String(raw || "").trim()) throw new Error("图像识别模型没有返回内容");
   let lastError: any = null;
   for (const candidate of buildJsonCandidates(raw)) {
@@ -426,14 +426,14 @@ function tryParseJsonScripts(raw: string) {
   return { scripts: null as any, error: lastError };
 }
 
-function parseJsonScripts(raw: string) {
+export function parseJsonScripts(raw: string) {
   const result = tryParseJsonScripts(raw);
   if (result.scripts) return result.scripts;
   const detail = result.error ? String(result.error.message || result.error).slice(0, 180) : "未知 JSON 错误";
   throw new Error(`模型返回的脚本 JSON 格式有误，自动修复仍未成功：${detail}`);
 }
 
-function buildPrompt(req: ScriptRequest) {
+export function buildPrompt(req: ScriptRequest) {
   const { region = "美区 (United States)", product, targetAudience, features, image, duration, visualFacts } = req;
   const targetRegion = getRegionConfig(region);
   return `你是一个顶级的 TikTok 跨境电商短视频脚本编剧和爆款策略专家。
@@ -1393,8 +1393,12 @@ async function probeSelectedCloudModel(config: ModelConfig) {
   }
 }
 
-export async function startServer(options: { port?: number; development?: boolean; rootDir: string; dataDir?: string; commercialMode?: boolean }) {
+export async function startServer(options: { port?: number; development?: boolean; rootDir: string; dataDir?: string; commercialMode?: boolean; cloudGenerationOnly?: boolean }) {
   const app = express();
+  if (options.cloudGenerationOnly) app.use('/api', (req, res, next) => {
+    if (req.path === '/health') return next();
+    return res.status(410).json({ error: '商业版请使用云端服务', code: 'CLOUD_API_REQUIRED' });
+  });
   const PORT = options.port ?? 0;
   const accountStore = new AccountStore(options.dataDir || path.join(options.rootDir, ".commercial-data"));
   const serverLog = (scope: string, error: any) => {

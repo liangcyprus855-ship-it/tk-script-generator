@@ -37,7 +37,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 }
 
 async function bootstrap() {
-const initialSettings = await window.tkDesktop?.loadSettings() || {};
+const initialSettings = import.meta.env.MODE === 'commercial' ? {} : await window.tkDesktop?.loadSettings() || {};
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>

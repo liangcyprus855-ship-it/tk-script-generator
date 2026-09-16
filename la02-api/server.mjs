@@ -2,6 +2,8 @@ import express from 'express';
 import pg from 'pg';
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
+import { mountGeneration, quoteDuration } from './generation.mjs';
+import { generateScripts } from './engine.cjs';
 
 const { Pool } = pg;
 const app = express();
@@ -15,6 +17,13 @@ app.use((req, res, next) => {
 });
 
 const env = process.env;
+// Only server-owned generation transactions may debit/refund or create history.
+app.use((req, res, next) => {
+  if (req.method === 'POST' && (['/api/billing/consume', '/api/billing/refund', '/api/generations', '/api/model/generate'].includes(req.path) || req.path.endsWith('/mock-pay'))) {
+    return res.status(410).json({ error: '请更新应用后使用服务器生成服务', code: 'CLIENT_UPGRADE_REQUIRED' });
+  }
+  next();
+});
 const pool = new Pool({
   host: env.PGHOST || '127.0.0.1',
   port: Number(env.PGPORT || 55432),
@@ -68,7 +77,7 @@ async function isAdmin(req) {
 function packages(id) { return ({ starter: [990, 100], creator: [3990, 500], studio: [9990, 1500] })[id] || null; }
 
 app.get('/api/health', async (_req, res) => {
-  try { await pool.query('SELECT 1'); return json(res, { ok: true, version: '1.0.0-la02-postgres' }); }
+  try { await pool.query('SELECT 1'); return json(res, { ok: true, version: '1.0.16-server', generation: 'server-jobs', model: 'mimo-v2.5' }); }
   catch (error) { return json(res, { ok: false, error: error.message }, 503); }
 });
 
@@ -104,13 +113,15 @@ app.post('/api/account/register', async (req, res) => {
   const id = crypto.randomUUID(); const salt = crypto.randomUUID();
   const hash = `${salt}:${crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256').toString('hex')}`;
   const created = now();
-  await pool.query('BEGIN');
+  const client = await pool.connect();
+  await client.query('BEGIN');
   try {
-    await pool.query('INSERT INTO accounts(id,email,password_hash,credits,balance_fen,created_at,membership) VALUES($1,$2,$3,0,50,$4,$5)', [id, email, hash, created, '普通用户']);
-    await pool.query('INSERT INTO ledger(id,account_id,type,amount,balance,description,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)', [crypto.randomUUID(), id, 'grant', 50, 50, '新用户注册赠送', created]);
-    await pool.query('DELETE FROM email_verification_codes WHERE email=$1', [email]);
-    await pool.query('COMMIT');
-  } catch (error) { await pool.query('ROLLBACK'); return json(res, { error: error.message }, 500); }
+    await client.query('INSERT INTO accounts(id,email,password_hash,credits,balance_fen,created_at,membership) VALUES($1,$2,$3,0,50,$4,$5)', [id, email, hash, created, '普通用户']);
+    await client.query('INSERT INTO ledger(id,account_id,type,amount,balance,description,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)', [crypto.randomUUID(), id, 'grant', 50, 50, '新用户注册赠送', created]);
+    await client.query('DELETE FROM email_verification_codes WHERE email=$1', [email]);
+    await client.query('COMMIT');
+  } catch (error) { await client.query('ROLLBACK'); return json(res, { error: '注册未完成，请重试' }, 500); }
+  finally { client.release(); }
   return json(res, { user: publicUser({ id, email, balance_fen: 50 }) }, 201);
 });
 
@@ -126,7 +137,7 @@ app.post('/api/account/login', async (req, res) => {
 app.get('/api/account/me', async (req, res) => { const user = await requireUser(req, res); return user ? json(res, { user: publicUser(user) }) : undefined; });
 app.get('/api/account/ledger', async (req, res) => { const user = await requireUser(req, res); if (!user) return; const rows = await pool.query('SELECT * FROM ledger WHERE account_id=$1 ORDER BY created_at DESC LIMIT 200', [user.id]); return json(res, { ledger: rows.rows }); });
 
-app.post('/api/billing/quote', (req, res) => { const seconds = Number(text(req.body?.duration).match(/^\d+/)?.[0] || 0); if (![10,15,30,45,60].includes(seconds)) return json(res, { error: '请选择有效的脚本时长' }, 400); const amountFen = Math.ceil(seconds / 5) * 10; return json(res, { duration: text(req.body?.duration), amountFen, amountYuan: (amountFen / 100).toFixed(2) }); });
+app.post('/api/billing/quote', (req, res) => { try { const q = quoteDuration(req.body?.duration); return json(res, { ...q, amountYuan: (q.amountFen/100).toFixed(2) }); } catch (e) { return json(res, { error: e.message }, 400); } });
 
 app.post('/api/billing/consume', async (req, res) => billingChange(req, res, false));
 app.post('/api/billing/refund', async (req, res) => billingChange(req, res, true));
@@ -151,6 +162,7 @@ async function billingChange(req, res, refund) {
 app.post('/api/generations', async (req, res) => { const user = await requireUser(req, res); if (!user) return; const reference = text(req.body?.reference); if (!reference) return json(res, { error: '缺少生成记录编号' }, 400); await pool.query('INSERT INTO generation_records(id,account_id,reference,duration,amount_fen,content_json,created_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(reference) DO NOTHING', [crypto.randomUUID(), user.id, reference, text(req.body?.duration), Math.floor(Number(req.body?.amountFen || 0)), JSON.stringify(req.body?.content ?? null), now()]); return json(res, { ok: true }); });
 app.get('/api/generations', async (req, res) => { const user = await requireUser(req, res); if (!user) return; const rows = await pool.query('SELECT id,reference,duration,amount_fen,content_json,created_at FROM generation_records WHERE account_id=$1 ORDER BY created_at DESC LIMIT 100', [user.id]); return json(res, { records: rows.rows.map((r) => ({ ...r, amountYuan: (Number(r.amount_fen)/100).toFixed(2), content: JSON.parse(r.content_json || 'null') })) }); });
 
+
 app.post('/api/billing/orders', async (req, res) => { const user = await requireUser(req, res); if (!user) return; const provider = text(req.body?.provider); let pack = packages(text(req.body?.packageId)); const requested = Number(req.body?.amountFen); if (provider === 'alipay_personal' && Number.isInteger(requested) && requested >= 200) pack = [requested, Math.floor(requested / 10)]; if (!pack || !['wechat','alipay_personal','mock'].includes(provider)) return json(res, { error: '充值参数无效' }, 400); const packageId = provider === 'alipay_personal' && Number.isInteger(requested) && requested >= 200 ? 'custom' : text(req.body?.packageId); const id = `RC${Date.now()}${crypto.randomUUID().slice(0,8)}`; await pool.query('INSERT INTO orders(id,account_id,provider,package_id,amount_fen,credits,status,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [id,user.id,provider,packageId,pack[0],pack[1],'pending',now()]); return json(res, { order:{id,userId:user.id,provider,packageId,amountFen:pack[0],credits:pack[1],status:'pending'}, payment: provider==='alipay_personal'?{mode:'manual',message:'个人收款码需人工审核'}:provider==='wechat'?{mode:'wechat_native_pending'}:{mode:'mock'} }, 201); });
 app.get('/api/billing/orders', async (req, res) => { const user = await requireUser(req, res); if (!user) return; const rows = await pool.query('SELECT * FROM orders WHERE account_id=$1 ORDER BY created_at DESC LIMIT 100', [user.id]); return json(res, { orders: rows.rows }); });
 app.post('/api/billing/orders/:id/submit-proof', async (req, res) => { const user = await requireUser(req, res); if (!user) return; const order = await pool.query('SELECT * FROM orders WHERE id=$1 AND account_id=$2', [req.params.id,user.id]); if (!order.rows[0]) return json(res,{error:'订单不存在'},404); await pool.query('INSERT INTO payment_proofs(order_id,note,created_at) VALUES($1,$2,$3) ON CONFLICT(order_id) DO UPDATE SET note=EXCLUDED.note,created_at=EXCLUDED.created_at',[req.params.id,text(req.body?.note),now()]); await pool.query('UPDATE orders SET status=$1 WHERE id=$2 AND status=$3',['proof_submitted',req.params.id,'pending']); return json(res,{message:'已提交审核'}); });
@@ -163,4 +175,5 @@ app.get('/api/admin/orders', async(req,res)=>{if(!(await isAdmin(req)))return js
 app.get('/api/admin/orders/history', async(req,res)=>{if(!(await isAdmin(req)))return json(res,{error:'管理员账户无权限'},403);const rows=await pool.query('SELECT o.id,o.account_id,o.provider,o.amount_fen,o.status,o.created_at,o.paid_at,a.email,p.note,NULL::text AS description FROM orders o JOIN accounts a ON a.id=o.account_id LEFT JOIN payment_proofs p ON p.order_id=o.id ORDER BY o.created_at DESC LIMIT 500');const manual=await pool.query("SELECT l.id,l.account_id,'admin' AS provider,l.amount AS amount_fen,'manual' AS status,l.created_at,NULL::timestamptz AS paid_at,a.email,NULL::text AS note,l.description FROM ledger l JOIN accounts a ON a.id=l.account_id WHERE l.type='recharge' AND l.description='管理员手工充值' ORDER BY l.created_at DESC LIMIT 500");return json(res,{orders:[...rows.rows,...manual.rows].sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)))});});
 app.post('/api/admin/orders/:id/:action', async(req,res)=>{if(!(await isAdmin(req)))return json(res,{error:'管理员账户无权限'},403);const action=req.params.action;const o=(await pool.query('SELECT * FROM orders WHERE id=$1',[req.params.id])).rows[0];if(!o||o.status!=='proof_submitted')return json(res,{error:'订单不存在或已处理'},404);if(action==='reject'){await pool.query('UPDATE orders SET status=$1 WHERE id=$2',['rejected',o.id]);return json(res,{message:'订单已驳回'});}const amount=Math.floor(Number(req.body?.amountFen??o.amount_fen));const c=await pool.connect();try{await c.query('BEGIN');const a=(await c.query('SELECT balance_fen FROM accounts WHERE id=$1 FOR UPDATE',[o.account_id])).rows[0];const b=Number(a.balance_fen||0)+amount;await c.query('UPDATE orders SET status=$1,paid_at=$2 WHERE id=$3',['paid',now(),o.id]);await c.query('UPDATE accounts SET balance_fen=$1 WHERE id=$2',[b,o.account_id]);await c.query('INSERT INTO ledger(id,account_id,type,amount,balance,description,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)',[crypto.randomUUID(),o.account_id,'recharge',amount,b,`人工审核到账：${o.package_id}`,now()]);await c.query('COMMIT');return json(res,{message:`已到账 ¥${(amount/100).toFixed(2)}`,balanceFen:b});}catch(e){await c.query('ROLLBACK');return json(res,{error:e.message},500)}finally{c.release()}});
 
+await mountGeneration(app, pool, userFrom, generateScripts);
 const port = Number(env.PORT || 38127); app.listen(port, '127.0.0.1', () => console.log(`tk-platform-api listening on 127.0.0.1:${port}`));

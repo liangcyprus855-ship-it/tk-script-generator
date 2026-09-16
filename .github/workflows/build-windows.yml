@@ -6,6 +6,29 @@ on:
 permissions:
   contents: read
 jobs:
+  cloud-transactions:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: acceptance-only
+          POSTGRES_DB: tk_test
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --prefix la02-api
+      - run: node --test la02-api/generation.test.mjs
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: acceptance-only
+          PGDATABASE: tk_test
   build-windows:
     runs-on: windows-latest
     steps:
@@ -21,9 +44,15 @@ jobs:
       - name: Test
         run: npm test
       - name: Build web and backend
-        run: npm run build
+        run: npm run build:commercial
       - name: Build Windows NSIS installer
         run: npm run desktop:pack
+      - name: Check cloud-only UI and balance gate
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force outputs | Out-Null
+          & node_modules/electron/dist/electron.exe scripts/cloud-ui-smoke.cjs
+          if ($LASTEXITCODE -ne 0) { Get-Content outputs/cloud-ui-smoke.json; throw 'Cloud UI check failed' }
       - name: Test packaged startup and shutdown
         run: node scripts/smoke.cjs
       - name: Verify installer
@@ -37,7 +66,7 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TK-Script-Generator-Windows-1.0.3
+          name: TK-Script-Generator-Windows
           path: |
             release/*.exe
             release/*.yml

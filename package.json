@@ -1,9 +1,10 @@
 {
   "name": "tk-script-generator",
   "private": true,
-  "version": "1.0.15",
+  "version": "1.0.16",
   "type": "module",
   "scripts": {
+    "build:api": "esbuild la02-api/engine.ts --bundle --platform=node --format=cjs --outfile=la02-api/engine.cjs",
     "dev": "tsx server-cli.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && node scripts/build-sites-worker.mjs",
     "build:commercial": "vite build --mode commercial && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && node scripts/build-sites-worker.mjs",
