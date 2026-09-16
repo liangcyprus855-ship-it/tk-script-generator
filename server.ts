@@ -1,3 +1,4 @@
+import packageInfo from "./package.json";
 import "dotenv/config";
 import express from "express";
 import path from "path";
@@ -1430,7 +1431,7 @@ export async function startServer(options: { port?: number; development?: boolea
     return { userId: user.id, amount, reference, cloudCharged };
   };
   app.use(express.json({ limit: "50mb", verify: (req, _res, buffer) => { (req as any).rawBody = Buffer.from(buffer); } }));
-  app.get("/api/health", (_req, res) => res.json({ ok: true, version: "1.0.7" }));
+  app.get("/api/health", (_req, res) => res.json({ ok: true, version: packageInfo.version }));
 
   // Commercial mode foundation. Payment providers will call the recharge
   // endpoint later; generation remains local-first until BILLING_REQUIRED is set.

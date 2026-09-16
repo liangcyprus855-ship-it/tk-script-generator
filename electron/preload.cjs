@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('tkDesktop', {
   loadAuth: () => ipcRenderer.invoke('tk:load-auth'),
   saveAuth: (value) => ipcRenderer.invoke('tk:save-auth', value),
   clearAuth: () => ipcRenderer.invoke('tk:clear-auth'),
+  getUpdateState: () => ipcRenderer.invoke('tk:update-state'),
   getVersion: () => ipcRenderer.invoke('tk:get-version'),
   checkForUpdates: () => ipcRenderer.invoke('tk:check-update'),
   downloadUpdate: () => ipcRenderer.invoke('tk:download-update'),

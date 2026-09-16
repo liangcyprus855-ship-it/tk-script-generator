@@ -329,6 +329,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
     if (!window.tkDesktop) return;
     window.tkDesktop.getVersion().then(setDesktopVersion).catch(() => {});
     const off = window.tkDesktop.onUpdateStatus((payload) => setUpdateStatus(payload));
+    window.tkDesktop.getUpdateState?.().then(setUpdateStatus).catch(() => {});
     return off;
   }, []);
 
@@ -940,7 +941,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
             <button type="button" onClick={() => setAccountOpen((value) => !value)} className="text-xs font-medium px-2.5 py-1.5 rounded-full border flex items-center gap-1.5 bg-white text-slate-600 border-slate-200 hover:border-slate-300">
               <UserRound className="w-3.5 h-3.5" /> {account ? `${account.email} · ¥${account.balanceYuan || ((account.balanceFen || 0) / 100).toFixed(2)}` : "登录 / 注册"}
             </button>
-            {window.tkDesktop && updateStatus && ["available", "downloading", "downloaded"].includes(updateStatus.state) && (
+            {window.tkDesktop && updateStatus && ["available", "downloading", "downloaded", "error"].includes(updateStatus.state) && (
               <button
                 type="button"
                 onClick={handleDesktopUpdateAction}
@@ -948,7 +949,7 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
                 title={updateStatus.releaseNotes || updateStatus.message || "有新版本可用"}
               >
                 {updateStatus?.state === "downloaded" ? <RotateCcw className="w-3.5 h-3.5" /> : updateStatus?.state === "downloading" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                {updateStatus.state === "available" ? `更新 ${updateStatus.version || ""}` : updateStatus.state === "downloading" ? `${updateStatus.percent || 0}%` : "安装更新"}
+                {updateStatus.state === "available" ? `更新 ${updateStatus.version || ""}` : updateStatus.state === "downloading" ? `${updateStatus.percent || 0}%` : updateStatus.state === "error" ? "更新失败，重试" : "正在重启"}
               </button>
             )}
             {!commercialMode && <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${modelStatus?.ok ? "bg-emerald-50 text-emerald-700 border-emerald-100" : "bg-slate-100 text-slate-600 border-slate-200"}`}>

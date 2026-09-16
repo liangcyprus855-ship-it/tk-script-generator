@@ -8,11 +8,38 @@ let backend = null;
 let quitting = false;
 let logger = () => {};
 if (process.env.TK_SMOKE_DATA_DIR) app.setPath('userData', process.env.TK_SMOKE_DATA_DIR);
+let updateState = { state: "idle" };
+let updateCheck = null;
+let retryTimer = null;
+let retryCount = 0;
 function sendUpdate(payload) {
+  updateState = payload;
+  logger("Updater " + payload.state + (payload.version ? " " + payload.version : ""));
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('tk:update-status', payload);
+}
+async function checkUpdates() {
+  if (updateCheck || ['downloading', 'downloaded'].includes(updateState.state)) return updateState;
+  updateCheck = autoUpdater.checkForUpdates();
+  try { await updateCheck; retryCount = 0; }
+  catch (error) {
+    sendUpdate({ state: 'error', message: '暂时无法连接更新服务，正在自动重试；也可点击重试。' });
+    logger('Updater check failed: ' + String(error.code || error.message).split('\n')[0]);
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => void checkUpdates(), Math.min(300000, 15000 * 2 ** Math.min(retryCount++, 5)));
+    retryTimer.unref();
+  } finally { updateCheck = null; }
+  return updateState;
+}
+async function installUpdate() {
+  if (quitting) return;
+  quitting = true;
+  try { await backend?.close(); } catch (error) { logger('Backend close: ' + error.message); }
+  backend = null;
+  autoUpdater.quitAndInstall(true, true);
 }
 function configureUpdater() {
   autoUpdater.autoDownload = false;
+  autoUpdater.autoRunAppAfterInstall = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowPrerelease = false;
 
@@ -23,9 +50,10 @@ function configureUpdater() {
   autoUpdater.on('update-downloaded', (info) => {
     sendUpdate({ state: 'downloaded', version: info.version, message: `版本 ${info.version} 已下载，正在静默安装并重启` });
     // NSIS 静默安装：用户只需点击一次“更新”，下载完成后自动重启应用。
-    setTimeout(() => autoUpdater.quitAndInstall(true, true), 500);
+    setTimeout(() => void installUpdate(), 1000);
   });
-  autoUpdater.on('error', (err) => sendUpdate({ state: 'error', message: `更新检查失败：${err?.message || err}` }));
+  autoUpdater.on('error', () => sendUpdate({ state: 'error', message: '更新连接失败，请点击重试。' }));
+  ipcMain.handle('tk:update-state', () => updateState);
 
   ipcMain.handle('tk:get-version', () => app.getVersion());
   ipcMain.handle('tk:check-update', async () => {
@@ -34,10 +62,10 @@ function configureUpdater() {
       sendUpdate(payload);
       return payload;
     }
-    return autoUpdater.checkForUpdates();
+    return checkUpdates();
   });
   ipcMain.handle('tk:download-update', () => autoUpdater.downloadUpdate());
-  ipcMain.handle('tk:install-update', () => autoUpdater.quitAndInstall(true, true));
+  ipcMain.handle('tk:install-update', installUpdate);
   ipcMain.handle('tk:open-external', (_e, url) => shell.openExternal(String(url)));
 }
 
@@ -79,7 +107,10 @@ async function createWindow() {
     fs.writeFileSync(path.join(app.getPath('userData'), 'renderer.png'), (await mainWindow.webContents.capturePage()).toPNG());
     fs.writeFileSync(path.join(app.getPath('userData'), 'smoke-result.json'), JSON.stringify({ ...result, url: backend.url, version: app.getVersion() }));
     app.quit();
-  } else if (app.isPackaged) setTimeout(() => autoUpdater.checkForUpdates().catch(error => logger(error.message)), 2500).unref();
+  } else if (app.isPackaged) {
+    setTimeout(() => void checkUpdates(), 2500).unref();
+    setInterval(() => void checkUpdates(), 5 * 60 * 1000).unref();
+  }
 }
 async function fail(error) {
   logger(error.stack || String(error));

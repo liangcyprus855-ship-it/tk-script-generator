@@ -35,7 +35,7 @@ async function main() {
     const resultFile = path.join(data, 'smoke-result.json');
     if (code !== 0 || !fs.existsSync(resultFile)) throw new Error(`Packaged startup failed (${code}). ${output}\nLogs: ${data}`);
     const result = JSON.parse(fs.readFileSync(resultFile));
-    if (result.version !== '1.0.3') throw new Error('Wrong packaged version');
+    if (result.version !== require('../package.json').version) throw new Error('Wrong packaged version');
     if (attempt === 1 && result.previousModel !== 'smoke-script') throw new Error('Settings lost on restart');
     const settings = fs.readFileSync(path.join(data, 'settings.json'), 'utf8');
     if (settings.includes('smoke-only-')) throw new Error('API key saved in plaintext');
@@ -44,8 +44,9 @@ async function main() {
     let listening = false;
     try { await fetch(result.url + '/api/health'); listening = true; } catch {}
     if (listening) throw new Error('Backend still listening after exit');
-    console.log(`PASS packaged 1.0.3: renderer, IPC, health, Chinese/space paths, shutdown. ${result.title}`);
+    console.log(`PASS packaged ${result.version}: renderer, IPC, health, Chinese/space paths, shutdown. ${result.title}`);
   } finally { clearTimeout(timer); }
   }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
+

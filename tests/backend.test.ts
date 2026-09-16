@@ -1,3 +1,4 @@
+import packageInfo from "../package.json";
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
@@ -19,7 +20,7 @@ test('dynamic ports, health, production assets, API validation and shutdown in C
     const address = first.server.address();
     assert.ok(address && typeof address !== 'string');
     assert.equal(address.address, '127.0.0.1');
-    assert.deepEqual(await (await fetch(first.url + '/api/health')).json(), { ok: true, version: '1.0.7' });
+    assert.deepEqual(await (await fetch(first.url + '/api/health')).json(), { ok: true, version: packageInfo.version });
     assert.match(await (await fetch(first.url)).text(), /原有 UI/);
     for (const route of ['generate', 'generate-one', 'analyze-product-image']) {
       const response = await fetch(first.url + '/api/' + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
