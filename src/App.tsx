@@ -218,7 +218,7 @@ const DURATION_OPTIONS = [
 export default function App({ initialSettings = {} }: { initialSettings?: any }) {
   const commercialMode = import.meta.env.MODE === "commercial";
   const commercialApiBase = commercialMode
-    ? String((import.meta.env as any).VITE_COMMERCIAL_API_BASE_URL || "https://tk-script-generator-api.liangcyprus855.chatgpt.site").replace(/\/+$/, "")
+    ? String((import.meta.env as any).VITE_COMMERCIAL_API_BASE_URL || "https://107-173-144-109.nip.io:8443").replace(/\/+$/, "")
     : "";
   const billingFetch = (path: string, init?: RequestInit) => {
     const isCloudRoute = path.startsWith("/api/account") || path.startsWith("/api/billing");
