@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Label, Select, Input, Button } from "./components";
 import { AIProvider, ModelConfig, ScriptOption, ScriptRequest, GenerateResponse, OllamaModelInfo, CloudModelInfo, ProductVisualFacts } from "./types";
 import { CLOUD_PROVIDER_PRESETS, getCloudProviderPreset } from "./cloudProviders";
-import { Loader2, Copy, CheckCircle2, Sparkles, Video, Play, Type, Upload, X, Globe2, Cpu, Cloud, RefreshCw, Wifi, WifiOff, KeyRound, Download, RotateCcw, UserRound } from "lucide-react";
+import { Loader2, Copy, CheckCircle2, Video, Play, Type, Upload, X, Cpu, Cloud, RefreshCw, Wifi, WifiOff, KeyRound, Download, RotateCcw, UserRound } from "lucide-react";
 
 export const REGION_OPTIONS = [
   {
@@ -13,22 +13,22 @@ export const REGION_OPTIONS = [
   },
   {
     id: "日区 (Japan)",
-    name: "🇯🇵 日区 (Japan / 日本)",
+    name: "日区 (Japan / 日本)",
     badge: "地道日语 · 隐私与收纳清洁 · QOL精致感"
   },
   {
     id: "泰区 (Thailand)",
-    name: "🇹🇭 泰区 (Thailand / 泰国)",
+    name: "泰区 (Thailand / 泰国)",
     badge: "地道泰语 · 泰式幽默反转 · 防水防汗与COD货到付款"
   },
   {
     id: "马来西亚区 (Malaysia)",
-    name: "🇲🇾 马来西亚区 (Malaysia)",
+    name: "马来西亚区 (Malaysia)",
     badge: "马来语/Manglish · 多元文化包容 · 包邮与折扣券"
   },
   {
     id: "印尼区 (Indonesia)",
-    name: "🇮🇩 印尼区 (Indonesia / 印尼)",
+    name: "印尼区 (Indonesia / 印尼)",
     badge: "印尼语爆款口癖 · 年轻庞大人口 · 极致性价比与COD"
   }
 ];
@@ -972,7 +972,6 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
             <div className="mb-6">
               <h2 className="text-xl font-bold flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-indigo-500" />
                 脚本需求与定制
               </h2>
               <p className="text-sm text-slate-500 mt-1">
@@ -1287,7 +1286,6 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
               {/* Target Region */}
               <div className="space-y-2">
                 <Label htmlFor="region-select" className="flex items-center gap-1.5 font-semibold text-slate-800">
-                  <Globe2 className="w-4 h-4 text-indigo-600" />
                   目标销售区域 / 国家市场
                 </Label>
                 <Select
@@ -1602,7 +1600,6 @@ export default function App({ initialSettings = {} }: { initialSettings?: any })
               <div className="p-6 border-b border-slate-100 bg-amber-50/50">
                 <div className="flex items-start gap-3">
                   <div className="bg-amber-100 p-2 rounded-lg shrink-0 mt-0.5">
-                    <Sparkles className="w-5 h-5 text-amber-600" />
                   </div>
                   <div>
                     <p className="text-xs font-bold text-amber-800 uppercase tracking-wider mb-1">黄金前3秒 (爆款钩子)</p>
