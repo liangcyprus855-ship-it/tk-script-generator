@@ -1,6 +1,7 @@
 import express from 'express';
 import pg from 'pg';
 import crypto from 'node:crypto';
+import nodemailer from 'nodemailer';
 
 const { Pool } = pg;
 const app = express();
@@ -33,6 +34,10 @@ const publicUser = (row) => {
   const balanceFen = Number(row?.balance_fen ?? Number(row?.credits || 0) * 10);
   return { id: row.id, email: row.email, balanceFen, balanceYuan: (balanceFen / 100).toFixed(2) };
 };
+const verificationTransport = env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS
+  ? nodemailer.createTransport({ host: env.SMTP_HOST, port: Number(env.SMTP_PORT || 465), secure: String(env.SMTP_SECURE || 'true') !== 'false', auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } })
+  : null;
+const verificationCode = () => String(crypto.randomInt(0, 1000000)).padStart(6, '0');
 const authToken = (req) => text(req.get('authorization')).replace(/^Bearer\s+/i, '');
 
 function checkPassword(password, stored) {
@@ -67,9 +72,33 @@ app.get('/api/health', async (_req, res) => {
   catch (error) { return json(res, { ok: false, error: error.message }, 503); }
 });
 
+app.post('/api/account/send-code', async (req, res) => {
+  const email = text(req.body?.email).toLowerCase();
+  if (!/^\S+@\S+\.\S+$/.test(email)) return json(res, { error: '请输入有效的邮箱地址' }, 400);
+  if (!verificationTransport) return json(res, { error: '邮箱验证服务尚未配置，请联系管理员' }, 503);
+  const existing = await pool.query('SELECT id FROM accounts WHERE email=$1', [email]);
+  if (existing.rows[0]) return json(res, { error: '该账号已存在，请直接登录' }, 409);
+  await pool.query('CREATE TABLE IF NOT EXISTS email_verification_codes (email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, sent_at TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)');
+  const previous = await pool.query('SELECT sent_at FROM email_verification_codes WHERE email=$1', [email]);
+  if (previous.rows[0] && Date.now() - new Date(previous.rows[0].sent_at).getTime() < 60_000) return json(res, { error: '验证码已发送，请 60 秒后再试' }, 429);
+  const code = verificationCode();
+  await pool.query('INSERT INTO email_verification_codes(email,code_hash,expires_at,sent_at,attempts) VALUES($1,$2,$3,$4,0) ON CONFLICT(email) DO UPDATE SET code_hash=EXCLUDED.code_hash,expires_at=EXCLUDED.expires_at,sent_at=EXCLUDED.sent_at,attempts=0', [email, sha256(code), new Date(Date.now() + 10 * 60_000).toISOString(), now()]);
+  try { await verificationTransport.sendMail({ from: env.SMTP_FROM || env.SMTP_USER, to: email, subject: 'TK 脚本生成器邮箱验证码', text: `你的注册验证码是 ${code}，10 分钟内有效。如非本人操作请忽略。` }); }
+  catch (error) { await pool.query('DELETE FROM email_verification_codes WHERE email=$1', [email]); return json(res, { error: '验证码邮件发送失败，请稍后重试' }, 502); }
+  return json(res, { message: '验证码已发送，请查收邮箱' });
+});
+
 app.post('/api/account/register', async (req, res) => {
   const email = text(req.body?.email).toLowerCase(); const password = text(req.body?.password);
   if (!email || password.length < 6) return json(res, { error: '请输入有效邮箱和至少 6 位密码' }, 400);
+  const code = text(req.body?.verificationCode);
+  if (!/^\d{6}$/.test(code)) return json(res, { error: '请输入 6 位邮箱验证码' }, 400);
+  await pool.query('CREATE TABLE IF NOT EXISTS email_verification_codes (email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, sent_at TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)');
+  const verification = await pool.query('SELECT * FROM email_verification_codes WHERE email=$1', [email]);
+  const record = verification.rows[0];
+  if (!record || new Date(record.expires_at).getTime() < Date.now()) return json(res, { error: '验证码无效或已过期，请重新获取' }, 400);
+  if (Number(record.attempts) >= 5) return json(res, { error: '验证码尝试次数过多，请重新获取' }, 429);
+  if (record.code_hash !== sha256(code)) { await pool.query('UPDATE email_verification_codes SET attempts=attempts+1 WHERE email=$1', [email]); return json(res, { error: '验证码不正确' }, 400); }
   const exists = await pool.query('SELECT id FROM accounts WHERE email=$1', [email]);
   if (exists.rows[0]) return json(res, { error: '该账号已存在' }, 409);
   const id = crypto.randomUUID(); const salt = crypto.randomUUID();
@@ -77,11 +106,12 @@ app.post('/api/account/register', async (req, res) => {
   const created = now();
   await pool.query('BEGIN');
   try {
-    await pool.query('INSERT INTO accounts(id,email,password_hash,credits,balance_fen,created_at,membership) VALUES($1,$2,$3,0,1000,$4,$5)', [id, email, hash, created, '普通用户']);
-    await pool.query('INSERT INTO ledger(id,account_id,type,amount,balance,description,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)', [crypto.randomUUID(), id, 'grant', 1000, 1000, '新用户余额', created]);
+    await pool.query('INSERT INTO accounts(id,email,password_hash,credits,balance_fen,created_at,membership) VALUES($1,$2,$3,0,50,$4,$5)', [id, email, hash, created, '普通用户']);
+    await pool.query('INSERT INTO ledger(id,account_id,type,amount,balance,description,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)', [crypto.randomUUID(), id, 'grant', 50, 50, '新用户注册赠送', created]);
+    await pool.query('DELETE FROM email_verification_codes WHERE email=$1', [email]);
     await pool.query('COMMIT');
   } catch (error) { await pool.query('ROLLBACK'); return json(res, { error: error.message }, 500); }
-  return json(res, { user: publicUser({ id, email, balance_fen: 1000 }) }, 201);
+  return json(res, { user: publicUser({ id, email, balance_fen: 50 }) }, 201);
 });
 
 app.post('/api/account/login', async (req, res) => {
