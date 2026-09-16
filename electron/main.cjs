@@ -64,7 +64,11 @@ function configureUpdater() {
     }
     return checkUpdates();
   });
-  ipcMain.handle('tk:download-update', () => autoUpdater.downloadUpdate());
+  ipcMain.handle('tk:download-update', async () => {
+    sendUpdate({ state: 'downloading', percent: 0, message: '已开始下载更新，请稍候…' });
+    try { return await autoUpdater.downloadUpdate(); }
+    catch (error) { sendUpdate({ state: 'error', message: '更新下载失败，请点击重试。' }); throw error; }
+  });
   ipcMain.handle('tk:install-update', installUpdate);
   ipcMain.handle('tk:open-external', (_e, url) => shell.openExternal(String(url)));
 }
