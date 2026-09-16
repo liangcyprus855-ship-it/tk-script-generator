@@ -25,7 +25,8 @@ nsis:
   deleteAppDataOnUninstall: false
 publish:
   provider: github
-  owner: 253874384-afk
+  owner: liangcyprus855-ship-it
   repo: tk-script-generator
 releaseInfo:
   releaseNotesFile: release-notes.md
+
