@@ -1148,31 +1148,41 @@ async function generateWithOpenAI(config: ModelConfig, prompt: string, image?: s
   const timeout = setTimeout(() => controller.abort(), 2 * 60 * 1000);
   let response: Response;
   try {
-    response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.apiKey}`
-      },
-      body: JSON.stringify({
-        model: config.model,
-        messages: [{ role: "user", content }],
-        max_completion_tokens: config.cloudProviderId === "xiaomi-mimo" ? 8000 : undefined,
-        thinking: config.cloudProviderId === "xiaomi-mimo" ? { type: "disabled" } : undefined,
-        stream: false
-      })
+    const requestBody = JSON.stringify({
+      model: config.model,
+      messages: [{ role: "user", content }],
+      max_completion_tokens: config.cloudProviderId === "xiaomi-mimo" ? 8000 : undefined,
+      thinking: config.cloudProviderId === "xiaomi-mimo" ? { type: "disabled" } : undefined,
+      stream: false
     });
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        response = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST", signal: controller.signal,
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${config.apiKey}` },
+          body: requestBody
+        });
+        if (response.ok || ![408, 409, 425, 429, 500, 502, 503, 504].includes(response.status)) break;
+        lastError = new Error(`云端 API 暂时不可用 (${response.status})`);
+        if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 800 * 2 ** attempt));
+      } catch (error) {
+        lastError = error;
+        if (attempt >= 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 800 * 2 ** attempt));
+      }
+    }
+    if (!response! && lastError) throw lastError;
   } catch (error: any) {
     if (error?.name === "AbortError") throw new Error("云端模型请求超过 2 分钟，已停止本次请求。");
     throw error;
   } finally {
     clearTimeout(timeout);
   }
-  if (!response.ok) {
-    const body = await response.text();
-    const err: any = new Error(`云端 API 调用失败 (${response.status})：${body.slice(0, 500)}`);
-    err.status = response.status;
+  if (!response!.ok) {
+    const body = await response!.text();
+    const err: any = new Error(`云端 API 调用失败 (${response!.status})：${body.slice(0, 500)}`);
+    err.status = response!.status;
     throw err;
   }
   const data: any = await response.json();
@@ -1391,7 +1401,7 @@ export async function startServer(options: { port?: number; development?: boolea
     baseUrl: process.env.TK_COMMERCIAL_BASE_URL || "https://api.xiaomimimo.com/v1",
     // MiMo-V2.5-Pro is used for script writing; the full-modality MiMo-V2.5
     // model is selected automatically when the request is an image-analysis step.
-    model: "mimo-v2.5",
+    model: process.env.TK_COMMERCIAL_MODEL || "mimo-v2.5",
     apiKey: process.env.TK_COMMERCIAL_API_KEY || "",
     cloudProviderId: process.env.TK_COMMERCIAL_CLOUD_PROVIDER || "xiaomi-mimo",
     inputMode: process.env.TK_COMMERCIAL_INPUT_MODE === "multimodal" ? "multimodal" : "text",
