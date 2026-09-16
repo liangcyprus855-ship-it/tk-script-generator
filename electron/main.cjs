@@ -20,7 +20,11 @@ function configureUpdater() {
   autoUpdater.on('update-available', (info) => sendUpdate({ state: 'available', version: info.version, message: `发现新版本 ${info.version}`, releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : '' }));
   autoUpdater.on('update-not-available', () => sendUpdate({ state: 'current', message: '当前已经是最新版本' }));
   autoUpdater.on('download-progress', (p) => sendUpdate({ state: 'downloading', percent: Math.round(p.percent || 0), message: `正在下载更新 ${Math.round(p.percent || 0)}%` }));
-  autoUpdater.on('update-downloaded', (info) => sendUpdate({ state: 'downloaded', version: info.version, message: `版本 ${info.version} 已下载，可以安装` }));
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdate({ state: 'downloaded', version: info.version, message: `版本 ${info.version} 已下载，正在静默安装并重启` });
+    // NSIS 静默安装：用户只需点击一次“更新”，下载完成后自动重启应用。
+    setTimeout(() => autoUpdater.quitAndInstall(true, true), 500);
+  });
   autoUpdater.on('error', (err) => sendUpdate({ state: 'error', message: `更新检查失败：${err?.message || err}` }));
 
   ipcMain.handle('tk:get-version', () => app.getVersion());
@@ -33,7 +37,7 @@ function configureUpdater() {
     return autoUpdater.checkForUpdates();
   });
   ipcMain.handle('tk:download-update', () => autoUpdater.downloadUpdate());
-  ipcMain.handle('tk:install-update', () => autoUpdater.quitAndInstall(false, true));
+  ipcMain.handle('tk:install-update', () => autoUpdater.quitAndInstall(true, true));
   ipcMain.handle('tk:open-external', (_e, url) => shell.openExternal(String(url)));
 }
 
