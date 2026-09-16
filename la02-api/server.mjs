@@ -90,7 +90,7 @@ app.post('/api/account/send-code', async (req, res) => {
 
 app.post('/api/account/register', async (req, res) => {
   const email = text(req.body?.email).toLowerCase(); const password = text(req.body?.password);
-  if (!email || password.length < 6) return json(res, { error: '请输入有效邮箱和至少 6 位密码' }, 400);
+  if (!email || password.length < 8) return json(res, { error: '请输入有效邮箱和至少 8 位密码' }, 400);
   const code = text(req.body?.verificationCode);
   if (!/^\d{6}$/.test(code)) return json(res, { error: '请输入 6 位邮箱验证码' }, 400);
   await pool.query('CREATE TABLE IF NOT EXISTS email_verification_codes (email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, sent_at TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)');
