@@ -1137,7 +1137,8 @@ function extractOpenAIText(data: any): string {
 async function generateWithOpenAI(config: ModelConfig, prompt: string, image?: string) {
   if (config.cloudProviderId === "openai") return generateWithOpenAINative(config, prompt, image);
   const baseUrl = normalizeBaseUrl(config.baseUrl, "https://api.openai.com/v1");
-  if (!config.apiKey) throw new Error("请输入云端 API Key");
+  const apiKey = String(config.apiKey || "").trim();
+  if (!apiKey) throw new Error("请输入云端 API Key");
   if (!config.model) throw new Error("请输入云端模型名称");
   const img = extractImage(image);
   const content: any = img ? [
@@ -1160,7 +1161,7 @@ async function generateWithOpenAI(config: ModelConfig, prompt: string, image?: s
       try {
         response = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST", signal: controller.signal,
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${config.apiKey}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
           body: requestBody
         });
         if (response.ok || ![408, 409, 425, 429, 500, 502, 503, 504].includes(response.status)) break;
@@ -1205,7 +1206,7 @@ async function generateWithOpenAI(config: ModelConfig, prompt: string, image?: s
       signal: repairController.signal,
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.apiKey}`
+        "Authorization": `Bearer ${apiKey}`
       },
       body: JSON.stringify({
         model: config.model,
@@ -1334,7 +1335,8 @@ function explainModelServiceError(error: any, config?: ModelConfig) {
 }
 
 async function probeSelectedCloudModel(config: ModelConfig) {
-  if (!config.apiKey && !(config.provider === "gemini" && process.env.GEMINI_API_KEY)) throw new Error("请输入 API Key");
+  const apiKey = String(config.apiKey || "").trim();
+  if (!apiKey && !(config.provider === "gemini" && process.env.GEMINI_API_KEY)) throw new Error("请输入 API Key");
   if (!config.model) throw new Error("请先选择模型");
 
   if (config.provider === "gemini") {
@@ -1348,7 +1350,7 @@ async function probeSelectedCloudModel(config: ModelConfig) {
     const base = normalizeBaseUrl(config.baseUrl, "https://api.anthropic.com");
     const r = await fetch(`${base}/v1/messages`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": config.apiKey!, "anthropic-version": "2023-06-01" },
+      headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({ model: config.model, max_tokens: 8, messages: [{ role: "user", content: "Reply OK only." }] }),
     });
     if (!r.ok) {
@@ -1364,7 +1366,7 @@ async function probeSelectedCloudModel(config: ModelConfig) {
     const base = normalizeBaseUrl(config.baseUrl, "https://api.openai.com/v1");
     const r = await fetch(`${base}/responses`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${config.apiKey}` },
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
       body: JSON.stringify({ model: config.model, input: "Reply OK only.", max_output_tokens: 16 }),
     });
     if (!r.ok) {
@@ -1380,7 +1382,7 @@ async function probeSelectedCloudModel(config: ModelConfig) {
   const base = normalizeBaseUrl(config.baseUrl, preset.baseUrl);
   const r = await fetch(`${base}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${config.apiKey}` },
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
     body: JSON.stringify({ model: config.model, messages: [{ role: "user", content: "Reply OK only." }], max_tokens: 8 }),
   });
   if (!r.ok) {
@@ -1401,7 +1403,7 @@ export async function startServer(options: { port?: number; development?: boolea
     baseUrl: process.env.TK_COMMERCIAL_BASE_URL || "https://api.xiaomimimo.com/v1",
     // MiMo-V2.5-Pro is used for script writing; the full-modality MiMo-V2.5
     // model is selected automatically when the request is an image-analysis step.
-    model: process.env.TK_COMMERCIAL_MODEL || "mimo-v2.5",
+    model: String(process.env.TK_COMMERCIAL_MODEL || "mimo-v2.5").trim(),
     apiKey: process.env.TK_COMMERCIAL_API_KEY || "",
     cloudProviderId: process.env.TK_COMMERCIAL_CLOUD_PROVIDER || "xiaomi-mimo",
     inputMode: process.env.TK_COMMERCIAL_INPUT_MODE === "multimodal" ? "multimodal" : "text",
