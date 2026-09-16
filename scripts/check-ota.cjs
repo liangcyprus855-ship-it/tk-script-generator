@@ -6,6 +6,9 @@ app.whenReady().then(async () => {
   app.getVersion = () => '1.0.7';
   const { NsisUpdater } = require('electron-updater');
   const updater = new NsisUpdater({ provider: 'github', owner: 'liangcyprus855-ship-it', repo: 'tk-script-generator' });
+  // Electron may outlive the shell that launched this diagnostic. Never use
+  // electron-updater's default console logger on an inherited pipe.
+  updater.logger = null;
   updater.autoDownload = false;
   updater.on('error', () => {});
   try {
