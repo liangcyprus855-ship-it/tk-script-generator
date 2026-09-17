@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { mountGeneration, quoteDuration } from './generation.mjs';
 import { generateScripts } from './engine.cjs';
+import { mountWorkbench } from './workbench.mjs';
 
 const { Pool } = pg;
 const app = express();
@@ -76,8 +77,9 @@ async function isAdmin(req) {
 }
 function packages(id) { return ({ starter: [990, 100], creator: [3990, 500], studio: [9990, 1500] })[id] || null; }
 
+mountWorkbench(app,pool,userFrom);
 app.get('/api/health', async (_req, res) => {
-  try { await pool.query('SELECT 1'); return json(res, { ok: true, version: '1.0.16-server', generation: 'server-jobs', model: 'mimo-v2.5' }); }
+  try { await pool.query('SELECT 1'); return json(res, { ok: true, version: '1.0.17-server', generation: 'server-jobs', model: 'mimo-v2.5' }); }
   catch (error) { return json(res, { ok: false, error: error.message }, 503); }
 });
 

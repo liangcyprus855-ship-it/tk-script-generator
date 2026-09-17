@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci --prefix la02-api
-      - run: node --test la02-api/generation.test.mjs
+      - run: node --test la02-api/*.test.mjs
         env:
           PGHOST: localhost
           PGPORT: 5432

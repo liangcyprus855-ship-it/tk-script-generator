@@ -1,7 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App.tsx';
-import './index.css';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -37,7 +35,10 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 }
 
 async function bootstrap() {
-const initialSettings = import.meta.env.MODE === 'commercial' ? {} : await window.tkDesktop?.loadSettings() || {};
+const commercial = import.meta.env.MODE === 'commercial';
+const App = commercial ? (await import('./workbench/Workbench')).default : (await import('./App')).default;
+if (commercial) await import('./workbench/workbench.css'); else await import('./index.css');
+const initialSettings = commercial ? {} : await window.tkDesktop?.loadSettings() || {};
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>

@@ -15,12 +15,13 @@ export function generationService(pool, generate) {
       input_hash TEXT NOT NULL, status TEXT NOT NULL, duration TEXT NOT NULL, amount_fen INTEGER NOT NULL,
       result_json JSONB, error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ,
       UNIQUE(account_id,request_id))`);
+    await pool.query("ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS region TEXT NOT NULL DEFAULT '', ADD COLUMN IF NOT EXISTS product TEXT NOT NULL DEFAULT ''");
   }
   async function get(userId, id) {
     const row = (await pool.query('SELECT * FROM generation_jobs WHERE id=$1 AND account_id=$2', [id, userId])).rows[0];
     if (!row) throw Object.assign(new Error('生成记录不存在'), { status: 404 });
     const account = (await pool.query('SELECT id,email,balance_fen FROM accounts WHERE id=$1', [userId])).rows[0];
-    return { jobId: row.id, requestId: row.request_id, status: row.status, amountFen: row.amount_fen, error: row.error,
+    return { jobId: row.id, requestId: row.request_id, duration: row.duration, createdAt: row.created_at, region: row.region, product: row.product, status: row.status, amountFen: row.amount_fen, error: row.error,
       ...(row.result_json || {}), user: userView(account) };
   }
   async function finish(id, result, error) {
@@ -87,6 +88,7 @@ export function generationService(pool, generate) {
       const id = crypto.randomUUID(), balance = Number(account.balance_fen) - quote.amountFen;
       await c.query('UPDATE accounts SET balance_fen=$1 WHERE id=$2', [balance, userId]);
       await c.query("INSERT INTO generation_jobs(id,account_id,request_id,input_hash,status,duration,amount_fen) VALUES($1,$2,$3,$4,'running',$5,$6)", [id, userId, requestId, hash, input.duration, quote.amountFen]);
+      await c.query('UPDATE generation_jobs SET region=$2,product=$3 WHERE id=$1', [id,input.region,input.product]);
       await c.query('INSERT INTO ledger(id,account_id,type,amount,balance,description,created_at,reference) VALUES($1,$2,$3,$4,$5,$6,now(),$7)', [crypto.randomUUID(), userId, 'consume', -quote.amountFen, balance, `生成${input.duration}三款脚本（失败自动退回）`, id]);
       return { id, start: true };
     });
