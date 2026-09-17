@@ -36,7 +36,7 @@ test('workbench orders, server history, ownership and logout', async()=>{
     const call=(url,body)=>fetch(base+url,{method:body?'POST':'GET',headers:{authorization:'Bearer test-token','content-type':'application/json'},body:body?JSON.stringify(body):undefined});
     assert.equal((await fetch(base+'/api/generations')).status,401);
     const channels=await (await call('/api/billing/channels')).json();assert.equal(channels.channels.alipay.available,true);assert.equal(channels.channels.wechat.available,false);
-    assert.equal((await call('/api/billing/orders',{provider:'alipay_personal',amountFen:499})).status,400);
+    assert.equal((await call('/api/billing/orders',{provider:'alipay_personal',amountFen:199})).status,400);
     assert.equal((await call('/api/billing/orders',{provider:'wechat_personal',amountFen:500})).status,503);
     const order=await (await call('/api/billing/orders',{provider:'alipay_personal',amountFen:505})).json();assert.equal(order.order.amountFen,505);
     assert.equal((await pool.query('SELECT balance_fen FROM accounts WHERE id=$1',['u'])).rows[0].balance_fen,123);

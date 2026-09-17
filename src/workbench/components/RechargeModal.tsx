@@ -16,7 +16,7 @@ export function RechargeModal({token,onClose}:{token:string;onClose:()=>void}){
   }catch(e:any){setError(e.message);}finally{locked.current=false;setBusy(false);}}
   return <Modal title="账户充值" onClose={onClose}>
     <div className="tab-switch">{(['wechat','alipay'] as const).map(c=><button key={c} disabled={busy} className={tab===c?'active':''} onClick={()=>{setTab(c);setOrder(null);setError('');}}>{c==='wechat'?'微信充值':'支付宝充值'}</button>)}</div>
-    <div className="field"><label htmlFor="recharge-amount">充值金额（最低 ¥{RECHARGE_MIN_YUAN}）</label><input id="recharge-amount" type="number" min={5} max={10000} step="0.01" value={amount} disabled={!!order||busy} onChange={e=>setAmount(e.target.value)}/>{!valid&&<span className="error-text">请输入 ¥5 至 ¥10000 的金额，最多两位小数</span>}</div>
+    <div className="field"><label htmlFor="recharge-amount">充值金额（最低 ¥{RECHARGE_MIN_YUAN}）</label><input id="recharge-amount" type="number" min={2} max={10000} step="0.01" value={amount} disabled={!!order||busy} onChange={e=>setAmount(e.target.value)}/>{!valid&&<span className="error-text">请输入 ¥2 至 ¥10000 的金额，最多两位小数</span>}</div>
     {!channels[tab]?.available&&<div className="field-note">{tab==='wechat'?'微信收款码暂未配置，请使用支付宝充值':'正在读取收款配置…'}</div>}
     {error&&<div role="alert" className="error-text">{error}</div>}
     {!order?<button className="btn-dark" disabled={!valid||busy||!channels[tab]?.available} onClick={create}>{busy?'创建订单中…':'生成收款码'}</button>:<>
