@@ -105,7 +105,11 @@ async function createWindow() {
       await window.tkDesktop.saveSettings(settings);
       const restored = await window.tkDesktop.loadSettings();
       if (JSON.stringify(restored) !== JSON.stringify(settings)) throw new Error('Settings IPC round trip failed');
-      return { title: document.title, text: document.body.innerText, desktop: !!window.tkDesktop, previousModel: previousSettings.modelConfig?.model };
+      const historyFixture = [{ id: 'smoke-history', time: '2026-09-18 00:00:00', duration: '10秒', amountYuan: '0.20', status: 'success', region: '美区', product: '验收产品', scripts: [{ title: '验收脚本' }] }];
+      await window.tkDesktop.saveHistory('smoke-account', historyFixture);
+      const restoredHistory = await window.tkDesktop.loadHistory('smoke-account');
+      if (restoredHistory.length !== 1 || restoredHistory[0].id !== 'smoke-history') throw new Error('Generation history IPC round trip failed');
+      return { title: document.title, text: document.body.innerText, desktop: !!window.tkDesktop, previousModel: previousSettings.modelConfig?.model, historyCount: restoredHistory.length };
     })()`);
     if (!result.desktop || result.text.length < 100 || result.text.includes('界面发生异常')) throw new Error('Renderer smoke check failed');
     fs.writeFileSync(path.join(app.getPath('userData'), 'renderer.png'), (await mainWindow.webContents.capturePage()).toPNG());
@@ -145,6 +149,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('tk:load-auth', () => settings.loadAuth());
   ipcMain.handle('tk:save-auth', (_event, value) => settings.saveAuth(value));
   ipcMain.handle('tk:clear-auth', () => settings.clearAuth());
+  ipcMain.handle('tk:load-history', (_event, accountId) => settings.loadHistory(String(accountId || '')));
+  ipcMain.handle('tk:save-history', (_event, accountId, records) => settings.saveHistory(String(accountId || ''), records));
   configureUpdater();
   await createWindow();
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) void createWindow().catch(fail); });

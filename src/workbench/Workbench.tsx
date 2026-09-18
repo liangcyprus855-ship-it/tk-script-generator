@@ -16,6 +16,32 @@ import { UpdateModal } from './components/UpdateModal';
 import type { GenerationRecord, GenerationStatus, ProductVisualFacts, ScriptOption, UploadedImage } from './components/types';
 
 type Account = {id: string; email: string; balanceFen: number; balanceYuan: string};
+
+function mergeRecords(...lists: GenerationRecord[][]): GenerationRecord[] {
+  const byId = new Map<string, GenerationRecord>();
+  for (const list of lists) for (const record of list) {
+    const previous = byId.get(record.id);
+    byId.set(record.id, previous ? { ...previous, ...record, scripts: record.scripts || previous.scripts } : record);
+  }
+  return [...byId.values()].sort((a, b) => Date.parse(b.time) - Date.parse(a.time)).slice(0, 200);
+}
+
+async function loadLocalRecords(accountId: string): Promise<GenerationRecord[]> {
+  try {
+    if (window.tkDesktop?.loadHistory) return (await window.tkDesktop.loadHistory(accountId)) as GenerationRecord[];
+    const raw = window.localStorage.getItem(`tk-generation-history:${accountId}`);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+async function saveLocalRecords(accountId: string, records: GenerationRecord[]) {
+  const value = records.slice(0, 200);
+  try {
+    if (window.tkDesktop?.saveHistory) await window.tkDesktop.saveHistory(accountId, value);
+    else window.localStorage.setItem(`tk-generation-history:${accountId}`, JSON.stringify(value));
+  } catch { /* 本地索引失败不阻断服务器生成 */ }
+}
+
 export default function Workbench(_props: {initialSettings?: any}) {
   const main = Object.keys(PRODUCT_CATEGORIES)[0], sub = Object.keys(PRODUCT_CATEGORIES[main])[0], initialRegion = REGION_OPTIONS[0].id;
   const [form, setForm] = useState({region: initialRegion, mainCategory: main, subCategory: sub, product: PRODUCT_CATEGORIES[main][sub][0], isCustomProduct: false, customProduct: '', targetAudience: AUDIENCE_BY_REGION[initialRegion][0], features: FEATURES_BY_REGION[initialRegion][0]});
@@ -39,7 +65,16 @@ export default function Workbench(_props: {initialSettings?: any}) {
   function handleError(e: any) { if(e.status===401) {clearSession();setAccountOpen(true);setNotice('登录已过期，请重新登录');} }
   async function refreshRecords(auth: string) {
     const data=await request('/api/generations',auth); if(tokenRef.current!==auth)return;
-    setRecords((data.records||[]).map((r:any)=>({id:r.id,time:new Date(r.created_at).toLocaleString('sv-SE',{hour12:false}),duration:r.duration,amountYuan:r.amountYuan,status:r.status==='failed'?'failed':'success',region:r.region||'历史记录',product:r.product||'产品信息未记录',scripts:r.content||r.scripts,failReason:r.error})));
+    const remote=(data.records||[]).map((r:any)=>({id:r.id,time:new Date(r.created_at).toLocaleString('sv-SE',{hour12:false}),duration:r.duration,amountYuan:r.amountYuan,status:r.status==='failed'?'failed':'success',region:r.region||'历史记录',product:r.product||'产品信息未记录',scripts:r.content||r.scripts,failReason:r.error}));
+    const local=await loadLocalRecords(account?.id || '');
+    if(tokenRef.current===auth)setRecords(previous=>mergeRecords(local,remote,previous));
+  }
+  async function persistJobRecord(job: any, status: 'success'|'failed', userId?: string) {
+    const id=userId || job.user?.id || account?.id; if(!id)return;
+    const record: GenerationRecord={id:job.jobId,time:new Date(job.createdAt||Date.now()).toLocaleString('sv-SE',{hour12:false}),duration:job.duration,amountYuan:(Number(job.amountFen||0)/100).toFixed(2),status,region:job.region||form.region,product:job.product||((form.isCustomProduct?form.customProduct:form.product).trim()),scripts:job.scripts||undefined,failReason:job.error};
+    const local=await loadLocalRecords(id), next=mergeRecords([record],local);
+    setRecords(previous=>mergeRecords(next,previous));
+    await saveLocalRecords(id,next);
   }
   function applyJob(job:any, auth:string) {
     if(tokenRef.current!==auth || job.status==='none')return;
@@ -47,8 +82,8 @@ export default function Workbench(_props: {initialSettings?: any}) {
     if(job.duration)setResultMeta({duration:job.duration,amountYuan:(job.amountFen/100).toFixed(2)});
     if(job.status==='running') {setJobId(job.jobId);setStatus('generating');if(job.createdAt)setStarted(new Date(job.createdAt).getTime());return;}
     setJobId('');
-    if(job.status==='succeeded') {setStatus('success');setScripts(job.scripts||[]);setFailReason('');setFacts(job.visualFacts||null);}
-    if(job.status==='failed') {setStatus('failed');setRefunded(true);setFailReason(job.error||'生成失败，费用已退回');}
+    if(job.status==='succeeded') {setStatus('success');setScripts(job.scripts||[]);setFailReason('');setFacts(job.visualFacts||null);void persistJobRecord(job,'success');}
+    if(job.status==='failed') {setStatus('failed');setRefunded(true);setFailReason(job.error||'生成失败，费用已退回');void persistJobRecord(job,'failed');}
     void refreshRecords(auth).catch(()=>{});
   }
   useEffect(()=>{let alive=true;const current=epoch.current;
@@ -63,6 +98,7 @@ export default function Workbench(_props: {initialSettings?: any}) {
     }catch(e:any){if(alive){setOffline(true);handleError(e);}}finally{busy=false;}};
     void sync();const timer=setInterval(sync,5000);return()=>{alive=false;clearInterval(timer);};
   },[token]);
+  useEffect(()=>{if(!account?.id)return;let alive=true;void loadLocalRecords(account.id).then(local=>{if(alive)setRecords(previous=>mergeRecords(local,previous));});return()=>{alive=false;};},[account?.id]);
   useEffect(()=>{
     if(!jobId||!token)return;let alive=true;let timer:ReturnType<typeof setTimeout>;
     const poll=async()=>{try{const job=await request('/api/generation-jobs/'+jobId,token);if(!alive)return;setOffline(false);applyJob(job,token);if(job.status!=='running')return;}catch(e:any){if(!alive)return;setOffline(true);handleError(e);if(e.status===401)return;}if(alive)timer=setTimeout(poll,2000);};

@@ -36,6 +36,7 @@ async function main() {
     if (code !== 0 || !fs.existsSync(resultFile)) throw new Error(`Packaged startup failed (${code}). ${output}\nLogs: ${data}`);
     const result = JSON.parse(fs.readFileSync(resultFile));
     if (result.version !== require('../package.json').version) throw new Error('Wrong packaged version');
+    if (result.historyCount !== 1) throw new Error('Generation history did not persist');
     if (attempt === 1 && result.previousModel !== 'smoke-script') throw new Error('Settings lost on restart');
     const settings = fs.readFileSync(path.join(data, 'settings.json'), 'utf8');
     if (settings.includes('smoke-only-')) throw new Error('API key saved in plaintext');

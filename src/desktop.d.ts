@@ -9,6 +9,8 @@ declare global {
       loadAuth: () => Promise<{ localToken: string; cloudToken: string } | null>;
       saveAuth: (value: { localToken: string; cloudToken: string }) => Promise<void>;
       clearAuth: () => Promise<void>;
+      loadHistory: (accountId: string) => Promise<any[]>;
+      saveHistory: (accountId: string, records: any[]) => Promise<void>;
       getUpdateState: () => Promise<any>;
       getVersion: () => Promise<string>;
       checkForUpdates: () => Promise<any>;

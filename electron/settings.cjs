@@ -3,6 +3,7 @@ const path = require('node:path');
 function createSettingsStore(directory, encryption) {
   const file = path.join(directory, 'settings.json');
   const authFile = path.join(directory, 'account-session.json');
+  const historyFile = path.join(directory, 'generation-history.json');
   function load() {
     if (!fs.existsSync(file)) return {};
     const value = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -45,6 +46,24 @@ function createSettingsStore(directory, encryption) {
     fs.renameSync(authFile + '.tmp', authFile);
   }
   function clearAuth() { try { fs.unlinkSync(authFile); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
-  return { load, save, loadAuth, saveAuth, clearAuth };
+  function loadHistory(accountId) {
+    if (!accountId || !fs.existsSync(historyFile)) return [];
+    try {
+      const all = JSON.parse(fs.readFileSync(historyFile, 'utf8'));
+      return Array.isArray(all[accountId]) ? all[accountId].slice(0, 200) : [];
+    } catch { return []; }
+  }
+  function saveHistory(accountId, records) {
+    if (!accountId || !Array.isArray(records)) throw new Error('Invalid generation history');
+    let all = {};
+    if (fs.existsSync(historyFile)) {
+      try { all = JSON.parse(fs.readFileSync(historyFile, 'utf8')) || {}; } catch { all = {}; }
+    }
+    all[accountId] = records.slice(0, 200);
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(historyFile + '.tmp', JSON.stringify(all), { mode: 0o600 });
+    fs.renameSync(historyFile + '.tmp', historyFile);
+  }
+  return { load, save, loadAuth, saveAuth, clearAuth, loadHistory, saveHistory };
 }
 module.exports = { createSettingsStore };

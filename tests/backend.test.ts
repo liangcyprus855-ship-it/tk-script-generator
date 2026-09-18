@@ -123,6 +123,19 @@ test('settings survive restart and API keys are encrypted on disk', () => {
     assert.deepEqual(createSettingsStore(root, encryption).load(), value);
   } finally { rmSync(root, { recursive: true }); }
 });
+test('generation history is indexed locally per account and survives store recreation', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'TK 本地历史 '));
+  const encryption = { isEncryptionAvailable: () => true, encryptString: (value: string) => Buffer.from(value), decryptString: (value: Buffer) => value.toString() };
+  const records = [{ id: 'job-1', time: '2026-09-18 10:00:00', duration: '20-30秒', amountYuan: '0.60', status: 'success', region: '美区', product: '泥膜', scripts: [{ title: '本地脚本' }] }];
+  try {
+    const store = createSettingsStore(root, encryption);
+    store.saveHistory('account-a', records);
+    assert.deepEqual(store.loadHistory('account-a'), records);
+    assert.deepEqual(store.loadHistory('account-b'), []);
+    assert.deepEqual(createSettingsStore(root, encryption).loadHistory('account-a'), records);
+    assert.doesNotMatch(readFileSync(path.join(root, 'generation-history.json'), 'utf8'), /account-b/);
+  } finally { rmSync(root, { recursive: true }); }
+});
 test('cloud vision and Ollama script models preserve visualFacts without forwarding image to script model', async () => {
   const facts = { productType: '瓶子', packageType: '瓶', primaryColor: '橙色', secondaryColors: [], material: '未确认', visibleText: [], visibleFeatures: ['黑色瓶盖'], usageClues: [], uncertain: ['材质'] };
   const script = { title: '测试', style: 'UGC', hook: '看这里', script: ['0-3s','3-8s','8-13s','13-15s'].map(timestamp => ({ timestamp, visual: '橙色瓶子', audio: '测试配音' })), cta: '了解更多' };
