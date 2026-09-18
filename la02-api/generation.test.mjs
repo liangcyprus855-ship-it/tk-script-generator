@@ -38,7 +38,7 @@ test('server generation: balance gate, concurrency, ownership, idempotency, refu
     assert.deepEqual(responses.map(r=>r.status), [202,202]);
     const a = await responses[0].json(), b = await responses[1].json();
     assert.equal(a.jobId, b.jobId); assert.equal(a.user.balanceFen, 0); assert.equal(calls, 1);
-    assert.equal((await post('good', { ...body, requestId: crypto.randomUUID() })).status, 409);
+    assert.equal((await post('good', { ...body, requestId: crypto.randomUUID() })).status, 402);
     assert.equal((await fetch(url + '/api/generation-jobs/' + a.jobId, { headers: { authorization: 'Bearer other' } })).status, 404);
     release();
     for (let i=0; i<30 && (await jobs.get('good',a.jobId)).status==='running'; i++) await new Promise(r=>setTimeout(r,20));
@@ -51,9 +51,11 @@ test('server generation: balance gate, concurrency, ownership, idempotency, refu
     const failed = await jobs.get('other', f.jobId); assert.equal(failed.status, 'failed'); assert.equal(failed.user.balanceFen, 100);
     await jobs.finish(f.jobId, null, 'duplicate failure'); assert.equal((await jobs.get('other',f.jobId)).user.balanceFen,100);
     const interrupted = await (await post('other', {...body, duration:'10秒',requestId:crypto.randomUUID()})).json();
+    for (let i=0; i<30 && (await jobs.get('other',interrupted.jobId)).status!=='running'; i++) await new Promise(r=>setTimeout(r,20));
     await jobs.recover(true); await jobs.recover(true);
     assert.equal((await jobs.get('other',interrupted.jobId)).user.balanceFen,100);
     release();
+    await jobs.drain();
     for (const [duration, price] of [['10秒',20],['15秒',30],['20-30秒',60],['45秒',90],['60秒',120]]) assert.equal(quoteDuration(duration).amountFen, price);
     assert.throws(()=>quoteDuration('1秒'));
   } finally {
@@ -114,6 +116,7 @@ test('server generation queues jobs in submission order and starts the next job 
     await waitFor(() => jobs.get('a', first.jobId), job => job.status === 'succeeded');
     await waitFor(() => jobs.get('b', second.jobId), job => job.status === 'succeeded');
     await waitFor(() => jobs.get('c', third.jobId), job => job.status === 'succeeded');
+    await jobs.drain();
     for (const id of ['a', 'b', 'c']) assert.equal((await pool.query('SELECT balance_fen FROM accounts WHERE id=$1', [id])).rows[0].balance_fen, 80);
   } finally {
     for (const release of releases.values()) release();

@@ -86,7 +86,9 @@ export function generationService(pool, generate, options = {}) {
           void pump();
         });
       }
-    })().finally(() => {
+    })().catch(error => {
+      console.error(JSON.stringify({ event: 'generation_queue_failed', code: error.code || error.name || 'UNKNOWN' }));
+    }).finally(() => {
       pumpPromise = null;
     });
     return pumpPromise;
@@ -131,7 +133,13 @@ export function generationService(pool, generate, options = {}) {
     void pump();
     return get(userId, reserved.id);
   }
-  return { init, get, submit, recover, finish, pump };
+  async function drain() {
+    while (activeExecutions > 0 || pumpPromise) {
+      if (pumpPromise) await pumpPromise;
+      if (activeExecutions > 0) await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  }
+  return { init, get, submit, recover, finish, pump, drain };
 }
 
 export async function mountGeneration(app, pool, userFrom, generate) {
