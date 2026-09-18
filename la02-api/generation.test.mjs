@@ -47,7 +47,7 @@ test('server generation: balance gate, concurrency, ownership, idempotency, refu
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM generation_records')).rows[0].n, 1);
     assert.equal((await post('good', {...body,requestId:crypto.randomUUID()})).status, 402); assert.equal(calls, 1);
     const f = await (await post('other', {...body, duration:'10秒',features:'fail',requestId:crypto.randomUUID()})).json(); release();
-    for (let i=0; i<30 && (await jobs.get('other',f.jobId)).status==='running'; i++) await new Promise(r=>setTimeout(r,20));
+    for (let i=0; i<30; i++) { const state = (await jobs.get('other',f.jobId)).status; if (state === 'failed' || state === 'succeeded') break; await new Promise(r=>setTimeout(r,20)); }
     const failed = await jobs.get('other', f.jobId); assert.equal(failed.status, 'failed'); assert.equal(failed.user.balanceFen, 100);
     await jobs.finish(f.jobId, null, 'duplicate failure'); assert.equal((await jobs.get('other',f.jobId)).user.balanceFen,100);
     const interrupted = await (await post('other', {...body, duration:'10秒',requestId:crypto.randomUUID()})).json();
@@ -108,9 +108,11 @@ test('server generation queues jobs in submission order and starts the next job 
     assert.deepEqual(calls, ['first']);
     releases.get('first')();
     await waitFor(() => jobs.get('b', second.jobId), job => job.status === 'running');
+    await waitFor(() => calls.length, count => count === 2);
     assert.deepEqual(calls, ['first', 'second']);
     releases.get('second')();
     await waitFor(() => jobs.get('c', third.jobId), job => job.status === 'running');
+    await waitFor(() => calls.length, count => count === 3);
     assert.deepEqual(calls, ['first', 'second', 'third']);
     releases.get('third')();
     await waitFor(() => jobs.get('a', first.jobId), job => job.status === 'succeeded');
