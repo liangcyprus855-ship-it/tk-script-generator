@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { GenerationStatus, ScriptOption } from "./types";
 import {
@@ -54,6 +54,10 @@ export function ResultPanel({
   refunded = false,
 }: ResultPanelProps) {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  const [active, setActive] = useState(0);
+  useEffect(() => { setActive(0); setCopiedIndex(null); }, [scripts]);
+  const selected = scripts[active] || scripts[0];
 
   async function copyOne(s: ScriptOption, i: number) {
     const text = scriptToText(s, duration, amountYuan);
@@ -124,55 +128,25 @@ export function ResultPanel({
         </div>
       )}
 
-      {status === "success" && (
-        <div className="script-cards">
-          {scripts.map((s, i) => (
-            <div key={s.title + i} className="script-card">
-              <div className="card-meta">
-                <div className="card-icon">0{i + 1}</div>
-                <div className="style-pill">{s.style}</div>
-              </div>
-              <div className="card-name">{s.title}</div>
-
-              <div className="hook-line">
-                <span className="hook-tag">黄金前三秒 HOOK</span>
-                {s.hook}
-              </div>
-
-              <div className="scene-list">
-                {s.script.map((sc) => (
-                  <div className="scene-item" key={sc.timestamp}>
-                    <div className="scene-time">{sc.timestamp.split(" ")[0]}</div>
-                    <div>
-                      <div className="scene-visual">{sc.visual}</div>
-                      <span className="scene-audio">配音：{sc.audio}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="cta-line">
-                <span className="cta-tag">CTA</span>
-                {s.cta}
-              </div>
-
-              <button
-                className={`copy-btn${copiedIndex === i ? " copied" : ""}`}
-                onClick={() => copyOne(s, i)}
-              >
-                {copiedIndex === i ? (
-                  <>
-                    <CheckIcon size={12} /> 已复制
-                  </>
-                ) : (
-                  <>
-                    <CopyIcon /> 一键复制脚本
-                  </>
-                )}
-              </button>
-            </div>
-          ))}
-        </div>
+      {status === "success" && selected && (
+        <>
+          <div className="script-tabs" role="tablist" aria-label="选择脚本">
+            {scripts.map((_, i) => <button key={i} id={'script-tab-'+i} role="tab" aria-selected={active===i} aria-controls="script-reading" tabIndex={active===i?0:-1} onClick={()=>setActive(i)} onKeyDown={e=>{if(e.key==='ArrowRight'||e.key==='ArrowLeft'){e.preventDefault();const next=(active+(e.key==='ArrowRight'?1:-1)+scripts.length)%scripts.length;setActive(next);document.getElementById('script-tab-'+next)?.focus();}}}>脚本 {String(i+1).padStart(2,'0')}</button>)}
+          </div>
+          <article key={active} id="script-reading" className="script-reading" role="tabpanel" aria-labelledby={'script-tab-'+active} tabIndex={0}>
+            <div className="reader-meta"><span>{selected.style}</span><span>{duration.split(' · ')[0]} · 本次生成费用 ¥{amountYuan}</span></div>
+            <h2 className="reader-title">{selected.title}</h2>
+            <div className="reader-hook"><span>HOOK · 黄金前三秒</span><p>{selected.hook}</p></div>
+            <ol className="reader-timeline">
+              {selected.script.map((scene,i)=><li key={i}>
+                <span className="reader-time">{scene.timestamp}</span>
+                <div className="reader-scene"><div className="reader-label">镜头 {String(i+1).padStart(2,'0')}</div><p>{scene.visual}</p><div className="reader-audio"><span>旁白 / 文案</span><p>{scene.audio}</p></div></div>
+              </li>)}
+            </ol>
+            <div className="reader-cta"><span>CTA · 行动引导</span><p>{selected.cta}</p></div>
+            <button className="copy-btn" onClick={()=>copyOne(selected,active)}>{copiedIndex===active?<><CheckIcon size={12}/> 已复制</>:<><CopyIcon/> 复制当前脚本</>}</button>
+          </article>
+        </>
       )}
     </div>
   );

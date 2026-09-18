@@ -6,7 +6,7 @@ window.tkDesktop = {
   loadAuth: async()=>({cloudToken:'acceptance-token'}), saveAuth:async()=>{}, clearAuth:async()=>{},
   loadSettings:async()=>{throw new Error('Commercial client must not load model keys');},
   saveSettings:async()=>{throw new Error('Commercial client must not save model keys');},
-  getVersion:async()=> '1.0.17', getUpdateState:async()=>({state:'idle'}), onUpdateStatus:cb=>{result.update=cb;return()=>{};},
+  getVersion:async()=> '1.0.18', getUpdateState:async()=>({state:'idle'}), onUpdateStatus:cb=>{result.update=cb;return()=>{};},
   downloadUpdate:async()=>{result.downloads=(result.downloads||0)+1;result.update({state:'downloading',percent:35});},
   checkForUpdates:async()=>{},installUpdate:async()=>{},
 };

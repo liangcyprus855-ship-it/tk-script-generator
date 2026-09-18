@@ -94,12 +94,102 @@ export function ProductForm({
         <>
           <b>{productName || "未选择产品"}</b>
           {" · "}
-          {targetAudience.split(" (")[0]}
+          {subCategory.split(" (")[0]} · {targetAudience.split(" (")[0]}
           {image ? " · 已上传参考图" : ""}
         </>
       }
     >
-      <div className="input-group">
+      <div className="input-group product-fields">
+        {/* 产品分类：三级 */}
+        <div className="field category-half">
+          <label htmlFor="main-category">产品大类</label>
+          <select
+            id="main-category"
+            value={mainCategory}
+            onChange={(e) => {
+              const nextMain = e.target.value;
+              const nextSub = Object.keys(PRODUCT_CATEGORIES[nextMain])[0];
+              onChange({
+                mainCategory: nextMain,
+                subCategory: nextSub,
+                product: PRODUCT_CATEGORIES[nextMain][nextSub][0],
+                isCustomProduct: false,
+              });
+            }}
+          >
+            {Object.keys(PRODUCT_CATEGORIES).map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field category-half">
+          <label htmlFor="sub-category">产品小类</label>
+          <select
+            id="sub-category"
+            value={subCategory}
+            onChange={(e) => {
+              const nextSub = e.target.value;
+              onChange({
+                subCategory: nextSub,
+                product: PRODUCT_CATEGORIES[mainCategory][nextSub][0],
+                isCustomProduct: false,
+              });
+            }}
+          >
+            {subCategories.map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <label htmlFor="product">具体产品</label>
+          {isCustomProduct ? (
+            <input
+              id="product"
+              type="text"
+              autoFocus
+              placeholder="请输入你的产品名称"
+              value={customProduct}
+              onChange={(e) => onChange({ customProduct: e.target.value })}
+            />
+          ) : (
+            <select
+              id="product"
+              value={product}
+              onChange={(e) => onChange({ product: e.target.value })}
+            >
+              {products.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          )}
+          {isCustomProduct ? (
+            <span
+              className="field-note"
+              style={{ cursor: "pointer", textDecoration: "underline" }}
+              onClick={() => onChange({ isCustomProduct: false })}
+            >
+              返回预设产品列表
+            </span>
+          ) : (
+            <span
+              className="field-note"
+              style={{ cursor: "pointer", textDecoration: "underline" }}
+              onClick={() => onChange({ isCustomProduct: true, customProduct: "" })}
+            >
+              找不到？点此自定义输入
+            </span>
+          )}
+        </div>
+
         {/* 产品参考图（可选） */}
         <div className="field">
           <label>产品参考图（可选）</label>
@@ -164,96 +254,6 @@ export function ProductForm({
               <div className="facts-line"><b>使用线索：</b>{facts.usageClues.join("；")}</div>
               <div className="facts-line"><b>无法确认：</b>{facts.uncertain.join("；")}</div>
             </div>
-          )}
-        </div>
-
-        {/* 产品分类：三级 */}
-        <div className="field">
-          <label htmlFor="main-category">产品大类</label>
-          <select
-            id="main-category"
-            value={mainCategory}
-            onChange={(e) => {
-              const nextMain = e.target.value;
-              const nextSub = Object.keys(PRODUCT_CATEGORIES[nextMain])[0];
-              onChange({
-                mainCategory: nextMain,
-                subCategory: nextSub,
-                product: PRODUCT_CATEGORIES[nextMain][nextSub][0],
-                isCustomProduct: false,
-              });
-            }}
-          >
-            {Object.keys(PRODUCT_CATEGORIES).map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="field">
-          <label htmlFor="sub-category">产品小类</label>
-          <select
-            id="sub-category"
-            value={subCategory}
-            onChange={(e) => {
-              const nextSub = e.target.value;
-              onChange({
-                subCategory: nextSub,
-                product: PRODUCT_CATEGORIES[mainCategory][nextSub][0],
-                isCustomProduct: false,
-              });
-            }}
-          >
-            {subCategories.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="field">
-          <label htmlFor="product">具体产品</label>
-          {isCustomProduct ? (
-            <input
-              id="product"
-              type="text"
-              autoFocus
-              placeholder="请输入你的产品名称"
-              value={customProduct}
-              onChange={(e) => onChange({ customProduct: e.target.value })}
-            />
-          ) : (
-            <select
-              id="product"
-              value={product}
-              onChange={(e) => onChange({ product: e.target.value })}
-            >
-              {products.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          )}
-          {isCustomProduct ? (
-            <span
-              className="field-note"
-              style={{ cursor: "pointer", textDecoration: "underline" }}
-              onClick={() => onChange({ isCustomProduct: false })}
-            >
-              返回预设产品列表
-            </span>
-          ) : (
-            <span
-              className="field-note"
-              style={{ cursor: "pointer", textDecoration: "underline" }}
-              onClick={() => onChange({ isCustomProduct: true, customProduct: "" })}
-            >
-              找不到？点此自定义输入
-            </span>
           )}
         </div>
 

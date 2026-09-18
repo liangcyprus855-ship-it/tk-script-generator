@@ -29,7 +29,7 @@ export function Collapse({ title, summary, beige, defaultOpen = false, children 
       >
         <span className="collapse-title">{title}</span>
         {summary != null && <span className="collapse-summary">{summary}</span>}
-        <span className="collapse-chevron">
+        <span className="collapse-edit">{open ? "收起" : "编辑"}</span><span className="collapse-chevron">
           <ChevronDownIcon />
         </span>
       </button>

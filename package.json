@@ -1,7 +1,7 @@
 {
   "name": "tk-script-generator",
   "private": true,
-  "version": "1.0.17",
+  "version": "1.0.18",
   "type": "module",
   "scripts": {
     "build:api": "esbuild la02-api/engine.ts --bundle --platform=node --format=cjs --outfile=la02-api/engine.cjs",

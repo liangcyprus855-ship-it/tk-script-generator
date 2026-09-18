@@ -23,8 +23,20 @@ app.whenReady().then(async()=>{
   const sent=await evaluate('window.__cloudTest.posts[0]');
   assert.deepEqual(Object.keys(sent).sort(),['duration','features','product','region','requestId','targetAudience']);
   await waitFor(`document.querySelector('.btn-start').disabled`);
-  await evaluate(`window.__cloudTest.job={...window.__cloudTest.job,status:'succeeded',scripts:[1,2,3].map(i=>({title:'验收脚本'+i,style:'演示',hook:'开场',script:[{timestamp:'0-3s',visual:'展示产品',audio:'hello'}],cta:'查看产品'}))}`);
+  await evaluate(`window.__cloudTest.job={...window.__cloudTest.job,status:'succeeded',scripts:[1,2,3].map(i=>({title:'验收脚本'+i,style:'演示',hook:'开场',script:Array.from({length:10},(_,n)=>({timestamp:n*3+'-'+(n+1)*3+'s',visual:'展示产品的使用方式，让用户看清质地、使用步骤与真实体验。镜头保持自然光线，突出产品细节和使用场景。',audio:'Show the texture and explain how it fits into an everyday routine, with a clear and natural voice.'})),cta:'查看产品'}))}`);
+  await waitFor(`document.body.innerText.includes('验收脚本1')`);
+  assert.equal(await evaluate(`document.querySelectorAll('.script-reading').length`),1);
+  await evaluate(`document.querySelectorAll('[role="tab"]')[2].click()`);
   await waitFor(`document.body.innerText.includes('验收脚本3')`);
+  assert.equal(await evaluate(`document.body.innerText.includes('验收脚本1')`),false);
+  const footerBefore=await evaluate(`document.querySelector('.action-footer').getBoundingClientRect().top`);
+  await evaluate(`document.querySelector('.script-reading').scrollTop=500`);
+  assert.equal(await evaluate(`document.querySelector('.action-footer').getBoundingClientRect().top`),footerBefore);
+  assert.equal(await evaluate(`document.querySelector('.action-footer').getBoundingClientRect().bottom <= innerHeight`),true);
+  assert.equal(await evaluate(`document.querySelector('.script-reading').scrollTop > 0`),true);
+  await evaluate(`document.querySelector('.script-reading').scrollTop=0`);
+  assert.equal(await evaluate(`Array.from(document.querySelectorAll('.collapse-panel')).every((p,i,a)=>!i || p.getBoundingClientRect().top-a[i-1].getBoundingClientRect().bottom<17)`),true);
+
   assert.equal(await evaluate(`document.querySelector('.btn-start').disabled`),true,'post-generation balance button');
   assert.equal(await evaluate(`window.__cloudTest.balance`),40);
   fs.writeFileSync(path.join(__dirname,'../outputs/workbench-success.png'),(await win.webContents.capturePage()).toPNG());
