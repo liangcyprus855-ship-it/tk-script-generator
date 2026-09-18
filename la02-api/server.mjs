@@ -49,6 +49,7 @@ const verificationTransport = env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS
   ? nodemailer.createTransport({ host: env.SMTP_HOST, port: Number(env.SMTP_PORT || 465), secure: String(env.SMTP_SECURE || 'true') !== 'false', auth: { user: env.SMTP_USER, pass: env.SMTP_PASS } })
   : null;
 const verificationCode = () => String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+const verificationTtlMs = 15 * 60_000;
 const authToken = (req) => text(req.get('authorization')).replace(/^Bearer\s+/i, '');
 
 function checkPassword(password, stored) {
@@ -90,12 +91,15 @@ app.post('/api/account/send-code', async (req, res) => {
   const existing = await pool.query('SELECT id FROM accounts WHERE email=$1', [email]);
   if (existing.rows[0]) return alreadyRegistered(res);
   if (!verificationTransport) return json(res, { error: '邮箱验证服务尚未配置，请联系管理员' }, 503);
-  await pool.query('CREATE TABLE IF NOT EXISTS email_verification_codes (email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, sent_at TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)');
+  await pool.query('CREATE TABLE IF NOT EXISTS email_verification_codes (email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, sent_at TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, previous_code_hash TEXT, previous_expires_at TIMESTAMPTZ)');
+  await pool.query('ALTER TABLE email_verification_codes ADD COLUMN IF NOT EXISTS previous_code_hash TEXT, ADD COLUMN IF NOT EXISTS previous_expires_at TIMESTAMPTZ');
   const previous = await pool.query('SELECT sent_at FROM email_verification_codes WHERE email=$1', [email]);
   if (previous.rows[0] && Date.now() - new Date(previous.rows[0].sent_at).getTime() < 60_000) return json(res, { error: '验证码已发送，请 60 秒后再试' }, 429);
   const code = verificationCode();
-  await pool.query('INSERT INTO email_verification_codes(email,code_hash,expires_at,sent_at,attempts) VALUES($1,$2,$3,$4,0) ON CONFLICT(email) DO UPDATE SET code_hash=EXCLUDED.code_hash,expires_at=EXCLUDED.expires_at,sent_at=EXCLUDED.sent_at,attempts=0', [email, sha256(code), new Date(Date.now() + 10 * 60_000).toISOString(), now()]);
-  try { await verificationTransport.sendMail({ from: env.SMTP_FROM || env.SMTP_USER, to: email, subject: 'TK 脚本生成器邮箱验证码', text: `你的注册验证码是 ${code}，10 分钟内有效。如非本人操作请忽略。` }); }
+  const sentAt = now();
+  const expiresAt = new Date(Date.now() + verificationTtlMs).toISOString();
+  await pool.query('INSERT INTO email_verification_codes(email,code_hash,expires_at,sent_at,attempts,previous_code_hash,previous_expires_at) VALUES($1,$2,$3,$4,0,NULL,NULL) ON CONFLICT(email) DO UPDATE SET previous_code_hash=email_verification_codes.code_hash,previous_expires_at=email_verification_codes.expires_at,code_hash=EXCLUDED.code_hash,expires_at=EXCLUDED.expires_at,sent_at=EXCLUDED.sent_at,attempts=0', [email, sha256(code), expiresAt, sentAt]);
+  try { await verificationTransport.sendMail({ from: env.SMTP_FROM || env.SMTP_USER, to: email, subject: 'TK 脚本生成器邮箱验证码', text: `你的注册验证码是 ${code}，15 分钟内有效。如非本人操作请忽略。` }); }
   catch (error) { await pool.query('DELETE FROM email_verification_codes WHERE email=$1', [email]); return json(res, { error: '验证码邮件发送失败，请稍后重试' }, 502); }
   return json(res, { message: '验证码已发送，请查收邮箱' });
 });
@@ -107,12 +111,15 @@ app.post('/api/account/register', async (req, res) => {
   if (exists.rows[0]) return alreadyRegistered(res);
   const code = text(req.body?.verificationCode);
   if (!/^\d{6}$/.test(code)) return json(res, { error: '请输入 6 位邮箱验证码' }, 400);
-  await pool.query('CREATE TABLE IF NOT EXISTS email_verification_codes (email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, sent_at TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)');
+  await pool.query('CREATE TABLE IF NOT EXISTS email_verification_codes (email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, sent_at TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, previous_code_hash TEXT, previous_expires_at TIMESTAMPTZ)');
+  await pool.query('ALTER TABLE email_verification_codes ADD COLUMN IF NOT EXISTS previous_code_hash TEXT, ADD COLUMN IF NOT EXISTS previous_expires_at TIMESTAMPTZ');
   const verification = await pool.query('SELECT * FROM email_verification_codes WHERE email=$1', [email]);
   const record = verification.rows[0];
-  if (!record || new Date(record.expires_at).getTime() < Date.now()) return json(res, { error: '验证码无效或已过期，请重新获取' }, 400);
+  if (!record || (new Date(record.expires_at).getTime() < Date.now() && (!record.previous_expires_at || new Date(record.previous_expires_at).getTime() < Date.now()))) return json(res, { error: '验证码无效或已过期，请重新获取' }, 400);
   if (Number(record.attempts) >= 5) return json(res, { error: '验证码尝试次数过多，请重新获取' }, 429);
-  if (record.code_hash !== sha256(code)) { await pool.query('UPDATE email_verification_codes SET attempts=attempts+1 WHERE email=$1', [email]); return json(res, { error: '验证码不正确' }, 400); }
+  const currentValid = record.code_hash === sha256(code) && new Date(record.expires_at).getTime() >= Date.now();
+  const previousValid = record.previous_code_hash === sha256(code) && record.previous_expires_at && new Date(record.previous_expires_at).getTime() >= Date.now();
+  if (!currentValid && !previousValid) { await pool.query('UPDATE email_verification_codes SET attempts=attempts+1 WHERE email=$1', [email]); return json(res, { error: '验证码不正确，请使用最近一次收到的验证码' }, 400); }
   const id = crypto.randomUUID(); const salt = crypto.randomUUID();
   const hash = `${salt}:${crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256').toString('hex')}`;
   const created = now();

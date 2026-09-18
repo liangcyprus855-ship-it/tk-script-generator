@@ -188,7 +188,7 @@ export function AccountModal({
             </button>
           </div>
           <span className="field-note">
-            {codeState === "sent" ? "验证码已发送，有效期 10 分钟" : "验证码 10 分钟内有效"}
+            {codeState === "sent" ? "验证码已发送，有效期 15 分钟；重复发送后最近两次验证码短时间内都可用" : "验证码 15 分钟内有效，同一邮箱 60 秒内只能发送一次"}
           </span>
         </div>
       )}
