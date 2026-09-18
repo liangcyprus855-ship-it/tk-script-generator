@@ -20,7 +20,7 @@ export function HistoryModal({ records, onClose }: HistoryModalProps) {
 
   async function copyRecord(r: GenerationRecord) {
     if (!r.scripts) return;
-    const text = `时间：${r.time}\n时长：${r.duration}\n金额：¥${r.amountYuan}\n\n` + r.scripts
+    const text = r.scripts
       .map(
         (s) =>
           `【${s.title}】(${s.style})\nHook：${s.hook}\n` +

@@ -22,7 +22,7 @@ interface ResultPanelProps {
   refunded?: boolean;
 }
 
-function scriptToText(s: ScriptOption, duration: string, amountYuan: string): string {
+function scriptToText(s: ScriptOption): string {
   const lines = [
     `【方案标题】${s.title}`,
     `【创作者风格】${s.style}`,
@@ -35,8 +35,6 @@ function scriptToText(s: ScriptOption, duration: string, amountYuan: string): st
     "",
     `【最终 CTA】${s.cta}`,
     "",
-    `【生成时长】${duration.split(" · ")[0]}`,
-    `【消耗金额】¥${amountYuan}`,
   ];
   return lines.join("\n");
 }
@@ -60,7 +58,7 @@ export function ResultPanel({
   const selected = scripts[active] || scripts[0];
 
   async function copyOne(s: ScriptOption, i: number) {
-    const text = scriptToText(s, duration, amountYuan);
+    const text = scriptToText(s);
     try {
       await navigator.clipboard.writeText(text);
     } catch {
