@@ -52,6 +52,7 @@ export default function Workbench(_props: {initialSettings?: any}) {
   const [records, setRecords] = useState<GenerationRecord[]>([]);
   const [status, setStatus] = useState<GenerationStatus>('idle'), [scripts, setScripts] = useState<ScriptOption[]>([]);
   const [jobId, setJobId] = useState(''), [started, setStarted] = useState(0), [elapsed, setElapsed] = useState(0);
+  const [queuePosition, setQueuePosition] = useState(0), [queueAhead, setQueueAhead] = useState(0);
   const [failReason, setFailReason] = useState(''), [refunded, setRefunded] = useState(false), [offline, setOffline] = useState(false);
   const [resultMeta, setResultMeta] = useState({duration, amountYuan: durationPriceYuan(duration)});
   const [accountOpen, setAccountOpen] = useState(false), [rechargeOpen, setRechargeOpen] = useState(false), [historyOpen, setHistoryOpen] = useState(false), [updateOpen, setUpdateOpen] = useState(false);
@@ -59,7 +60,7 @@ export default function Workbench(_props: {initialSettings?: any}) {
   const [notice, setNotice] = useState('');
   const amountYuan = durationPriceYuan(duration);
   function clearSession() {
-    epoch.current++; tokenRef.current=''; setToken(''); setAccount(null); setRecords([]); setScripts([]); setJobId(''); setStatus('idle'); setFacts(null); submitting.current=false;
+    epoch.current++; tokenRef.current=''; setToken(''); setAccount(null); setRecords([]); setScripts([]); setJobId(''); setStatus('idle'); setQueuePosition(0); setQueueAhead(0); setFacts(null); submitting.current=false;
     void window.tkDesktop?.clearAuth();
   }
   function handleError(e: any) { if(e.status===401) {clearSession();setAccountOpen(true);setNotice('登录已过期，请重新登录');} }
@@ -80,8 +81,9 @@ export default function Workbench(_props: {initialSettings?: any}) {
     if(tokenRef.current!==auth || job.status==='none')return;
     if(job.user)setAccount(job.user);
     if(job.duration)setResultMeta({duration:job.duration,amountYuan:(job.amountFen/100).toFixed(2)});
-    if(job.status==='running') {setJobId(job.jobId);setStatus('generating');if(job.createdAt)setStarted(new Date(job.createdAt).getTime());return;}
+    if(job.status==='queued' || job.status==='running') {setJobId(job.jobId);setStatus('generating');setQueuePosition(Number(job.queuePosition||0));setQueueAhead(Number(job.queueAhead||0));if(job.createdAt)setStarted(new Date(job.createdAt).getTime());return;}
     setJobId('');
+    setQueuePosition(0);setQueueAhead(0);
     if(job.status==='succeeded') {setStatus('success');setScripts(job.scripts||[]);setFailReason('');setFacts(job.visualFacts||null);void persistJobRecord(job,'success');}
     if(job.status==='failed') {setStatus('failed');setRefunded(true);setFailReason(job.error||'生成失败，费用已退回');void persistJobRecord(job,'failed');}
     void refreshRecords(auth).catch(()=>{});
@@ -101,7 +103,7 @@ export default function Workbench(_props: {initialSettings?: any}) {
   useEffect(()=>{if(!account?.id)return;let alive=true;void loadLocalRecords(account.id).then(local=>{if(alive)setRecords(previous=>mergeRecords(local,previous));});return()=>{alive=false;};},[account?.id]);
   useEffect(()=>{
     if(!jobId||!token)return;let alive=true;let timer:ReturnType<typeof setTimeout>;
-    const poll=async()=>{try{const job=await request('/api/generation-jobs/'+jobId,token);if(!alive)return;setOffline(false);applyJob(job,token);if(job.status!=='running')return;}catch(e:any){if(!alive)return;setOffline(true);handleError(e);if(e.status===401)return;}if(alive)timer=setTimeout(poll,2000);};
+    const poll=async()=>{try{const job=await request('/api/generation-jobs/'+jobId,token);if(!alive)return;setOffline(false);applyJob(job,token);if(job.status!=='running'&&job.status!=='queued')return;}catch(e:any){if(!alive)return;setOffline(true);handleError(e);if(e.status===401)return;}if(alive)timer=setTimeout(poll,2000);};
     void poll();return()=>{alive=false;clearTimeout(timer);};
   },[jobId,token]);
   useEffect(()=>{if(status!=='generating')return;const timer=setInterval(()=>setElapsed(Math.max(0,Math.floor((Date.now()-started)/1000))),500);return()=>clearInterval(timer);},[status,started]);
@@ -125,7 +127,7 @@ export default function Workbench(_props: {initialSettings?: any}) {
     submissionVersion.current++;submitting.current=true;setStatus('generating');setStarted(Date.now());setElapsed(0);setFailReason('');setRefunded(false);setScripts([]);setNotice('');setResultMeta({duration,amountYuan});
     try{let job;try{job=await request('/api/generate',auth,payload);}catch(e:any){if(e.status!==0)throw e;job=await request('/api/generate',auth,payload);}applyJob(job,auth);
     }catch(e:any){if(tokenRef.current!==auth)return;if(e.status===401){handleError(e);return;}setStatus('failed');setFailReason(e.message);
-      try{const latest=await request('/api/generation-jobs/latest',auth);if(latest.requestId===payload.requestId||latest.status==='running')applyJob(latest,auth);const me=await request('/api/account/me',auth);if(tokenRef.current===auth)setAccount(me.user);}catch{}
+      try{const latest=await request('/api/generation-jobs/latest',auth);if(latest.requestId===payload.requestId||latest.status==='running'||latest.status==='queued')applyJob(latest,auth);const me=await request('/api/account/me',auth);if(tokenRef.current===auth)setAccount(me.user);}catch{}
     }finally{submitting.current=false;}
   }
   async function runUpdate(){const desktop=window.tkDesktop;if(!desktop)return;const current=update.state;
@@ -140,8 +142,8 @@ export default function Workbench(_props: {initialSettings?: any}) {
       <DurationPanel value={duration} onChange={setDuration}/>
       <ProductForm {...form} image={image} facts={facts} onChange={patch=>setForm(p=>({...p,...patch}))} onImageChange={v=>{setImage(v);setFacts(null);}} onFactsChange={setFacts}/>
     </section><aside className="sidebar-config">
-      <ResultPanel status={status} scripts={scripts} elapsed={elapsed} failReason={failReason} refunded={refunded} offline={offline} duration={resultMeta.duration} amountYuan={resultMeta.amountYuan} onRetry={startGeneration}/>
-      <GenerateFooter amountYuan={amountYuan} balanceYuan={account?.balanceYuan||'0.00'} loggedIn={!!account} status={status} elapsed={elapsed} onGenerate={startGeneration} onOpenRecharge={()=>setRechargeOpen(true)}/>
+      <ResultPanel status={status} scripts={scripts} elapsed={elapsed} queuePosition={queuePosition} queueAhead={queueAhead} failReason={failReason} refunded={refunded} offline={offline} duration={resultMeta.duration} amountYuan={resultMeta.amountYuan} onRetry={startGeneration}/>
+      <GenerateFooter amountYuan={amountYuan} balanceYuan={account?.balanceYuan||'0.00'} loggedIn={!!account} status={status} elapsed={elapsed} queuePosition={queuePosition} onGenerate={startGeneration} onOpenRecharge={()=>setRechargeOpen(true)}/>
     </aside></div>
   </div>
   {accountOpen&&<AccountModal account={account} records={records} onLogin={authenticate} onRegister={authenticate} onSendCode={async email=>{await request('/api/account/send-code','',{email});}} onLogout={()=>{const auth=token;clearSession();setAccountOpen(false);void request('/api/account/logout',auth,{}).catch(()=>{});}} onOpenRecharge={()=>{setAccountOpen(false);setRechargeOpen(true);}} onOpenHistory={()=>{setAccountOpen(false);setHistoryOpen(true);}} onClose={()=>setAccountOpen(false)}/>}

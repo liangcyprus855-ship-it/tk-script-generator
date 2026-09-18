@@ -61,3 +61,65 @@ test('server generation: balance gate, concurrency, ownership, idempotency, refu
     await pool.end(); await root.query(`DROP SCHEMA ${schema} CASCADE`); await root.end();
   }
 });
+
+test('server generation queues jobs in submission order and starts the next job after a slot frees', async () => {
+  const schema = 'tk_gen_queue_test_' + crypto.randomBytes(8).toString('hex');
+  const root = new pg.Pool();
+  const pool = new pg.Pool({ options: `-c search_path=${schema}`, max: 8 });
+  const releases = new Map();
+  const calls = [];
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const waitFor = async (fn, predicate) => {
+    for (let i = 0; i < 100; i += 1) {
+      const value = await fn();
+      if (predicate(value)) return value;
+      await wait(10);
+    }
+    throw new Error('等待队列状态超时');
+  };
+  let jobs;
+  try {
+    await root.query(`CREATE SCHEMA ${schema}`);
+    await pool.query(`CREATE TABLE accounts(id TEXT PRIMARY KEY,email TEXT,balance_fen INTEGER NOT NULL);
+      CREATE TABLE ledger(id TEXT PRIMARY KEY,account_id TEXT,type TEXT,amount INTEGER,balance INTEGER,description TEXT,created_at TIMESTAMPTZ,reference TEXT);
+      CREATE TABLE generation_records(id TEXT PRIMARY KEY,account_id TEXT,reference TEXT UNIQUE,duration TEXT,amount_fen INTEGER,content_json TEXT,created_at TIMESTAMPTZ);
+      INSERT INTO accounts VALUES('a','a@example.test',100),('b','b@example.test',100),('c','c@example.test',100)`);
+    const generate = async input => {
+      calls.push(input.product);
+      await new Promise(resolve => releases.set(input.product, resolve));
+      return { scripts: [{ title: input.product }], model: 'mimo-v2.5' };
+    };
+    jobs = generationService(pool, generate, { maxConcurrency: 1 });
+    await jobs.init();
+    const submit = (accountId, product) => jobs.submit(accountId, { requestId: crypto.randomUUID(), duration: '10秒', region: '美区', product, targetAudience: '成人', features: '便携' });
+    const first = await submit('a', 'first');
+    await waitFor(() => jobs.get('a', first.jobId), job => job.status === 'running');
+    const second = await submit('b', 'second');
+    const secondQueued = await jobs.get('b', second.jobId);
+    assert.equal(secondQueued.status, 'queued');
+    assert.equal(secondQueued.queuePosition, 1);
+    assert.equal(secondQueued.queueAhead, 0);
+    const third = await submit('c', 'third');
+    const thirdQueued = await jobs.get('c', third.jobId);
+    assert.equal(thirdQueued.status, 'queued');
+    assert.equal(thirdQueued.queuePosition, 2);
+    assert.deepEqual(calls, ['first']);
+    releases.get('first')();
+    await waitFor(() => jobs.get('b', second.jobId), job => job.status === 'running');
+    assert.deepEqual(calls, ['first', 'second']);
+    releases.get('second')();
+    await waitFor(() => jobs.get('c', third.jobId), job => job.status === 'running');
+    assert.deepEqual(calls, ['first', 'second', 'third']);
+    releases.get('third')();
+    await waitFor(() => jobs.get('a', first.jobId), job => job.status === 'succeeded');
+    await waitFor(() => jobs.get('b', second.jobId), job => job.status === 'succeeded');
+    await waitFor(() => jobs.get('c', third.jobId), job => job.status === 'succeeded');
+    for (const id of ['a', 'b', 'c']) assert.equal((await pool.query('SELECT balance_fen FROM accounts WHERE id=$1', [id])).rows[0].balance_fen, 80);
+  } finally {
+    for (const release of releases.values()) release();
+    if (jobs) await jobs.recover(true);
+    await pool.end();
+    await root.query(`DROP SCHEMA ${schema} CASCADE`);
+    await root.end();
+  }
+});

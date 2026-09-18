@@ -8,6 +8,7 @@ interface GenerateFooterProps {
   loggedIn: boolean;
   status: GenerationStatus;
   elapsed: number;
+  queuePosition?: number;
   onGenerate: () => void;
   onOpenRecharge: () => void;
 }
@@ -20,6 +21,7 @@ export function GenerateFooter({
   loggedIn,
   status,
   elapsed,
+  queuePosition = 0,
   onGenerate,
   onOpenRecharge,
 }: GenerateFooterProps) {
@@ -31,7 +33,9 @@ export function GenerateFooter({
   const buttonLabel = !loggedIn
     ? "请先登录账户"
     : generating
-      ? `服务器正在生成… ${elapsed}s`
+      ? queuePosition > 0
+        ? `排队中… 前面 ${Math.max(0, queuePosition - 1)} 个任务`
+        : `服务器正在生成… ${elapsed}s`
       : insufficient
         ? "余额不足，请先充值"
         : "智能生成 3 款剧本";
@@ -74,7 +78,9 @@ export function GenerateFooter({
           }}
         >
           {generating
-            ? "生成结果会自动保存 · 网络中断后自动恢复查询 · 请勿重复提交"
+            ? queuePosition > 0
+              ? "已进入服务器队列 · 按提交时间依次处理 · 请勿重复提交"
+              : "生成结果会自动保存 · 网络中断后自动恢复查询 · 请勿重复提交"
             : "失败自动退款 · 参数保留 · 结果自动保存"}
         </p>
       )}

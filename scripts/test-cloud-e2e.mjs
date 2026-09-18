@@ -20,7 +20,7 @@ try {
   assert.equal(initial.data.user.balanceFen,0);
   const duplicate=await request('/api/generate',input);assert.equal(duplicate.data.jobId,jobId);
   let job=initial.data;
-  while(job.status==='running'&&Date.now()-started<220000){await new Promise(r=>setTimeout(r,2000));job=(await request('/api/generation-jobs/'+jobId)).data;}
+  while((job.status==='queued'||job.status==='running')&&Date.now()-started<220000){await new Promise(r=>setTimeout(r,2000));job=(await request('/api/generation-jobs/'+jobId)).data;}
   assert.equal(job.status,'succeeded',JSON.stringify({status:job.status,error:job.error}));assert.equal(job.scripts.length,3);assert.equal(job.user.balanceFen,0);
   assert.equal((await request('/api/generate',{...input,requestId:crypto.randomUUID()})).status,402);
   const stored=(await pool.query('SELECT amount_fen,content_json FROM generation_records WHERE account_id=$1',[id])).rows;

@@ -14,6 +14,8 @@ interface ResultPanelProps {
   status: GenerationStatus;
   scripts: ScriptOption[];
   elapsed: number;
+  queuePosition?: number;
+  queueAhead?: number;
   failReason: string;
   offline: boolean;
   duration: string;
@@ -44,6 +46,8 @@ export function ResultPanel({
   status,
   scripts,
   elapsed,
+  queuePosition = 0,
+  queueAhead = 0,
   failReason,
   offline,
   duration,
@@ -102,10 +106,12 @@ export function ResultPanel({
       {status === "generating" && (
         <div className="result-generating">
           <div className="spinner" />
-          <div className="gen-title">正在生成</div>
+          <div className="gen-title">{queuePosition > 0 ? "排队中" : "正在生成"}</div>
           <div className="gen-timer">已等待 {elapsed} 秒</div>
           <div className="gen-sub">
-            正在生成 3 套脚本，请勿重复提交。
+            {queuePosition > 0
+              ? `已按提交时间排队，前面还有 ${queueAhead} 个任务；前面的任务完成后会自动开始。`
+              : "正在生成 3 套脚本，请勿重复提交。"}
             <br />
             生成结果会自动保存，网络中断后会自动恢复查询。
           </div>
