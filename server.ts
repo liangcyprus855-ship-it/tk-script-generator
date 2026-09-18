@@ -1464,7 +1464,7 @@ export async function startServer(options: { port?: number; development?: boolea
   // endpoint later; generation remains local-first until BILLING_REQUIRED is set.
   app.post("/api/account/register", (req, res) => {
     try { return res.json(accountStore.register(String(req.body?.email || ""), String(req.body?.password || ""))); }
-    catch (error: any) { return res.status(error.status || 500).json({ error: error.message }); }
+    catch (error: any) { return res.status(error.status || 500).json({ error: error.message, ...(error.code ? { code: error.code } : {}) }); }
   });
   app.post("/api/account/login", (req, res) => {
     try { return res.json(accountStore.login(String(req.body?.email || ""), String(req.body?.password || ""))); }

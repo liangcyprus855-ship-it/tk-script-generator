@@ -49,7 +49,7 @@ export class AccountStore {
     const normalized = email.trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(normalized)) throw Object.assign(new Error("请输入有效的邮箱地址"), { status: 400 });
     if (password.length < 8) throw Object.assign(new Error("密码至少需要 8 位"), { status: 400 });
-    if (this.data.accounts.some((account) => account.email === normalized)) throw Object.assign(new Error("该账号已存在"), { status: 409 });
+    if (this.data.accounts.some((account) => account.email === normalized)) throw Object.assign(new Error("该邮箱已注册，请直接登录"), { status: 409, code: "ACCOUNT_ALREADY_REGISTERED" });
     const account: Account = { id: randomUUID(), email: normalized, passwordHash: hashPassword(password), credits: 100, createdAt: new Date().toISOString() };
     this.data.accounts.push(account);
     this.data.ledger[account.id] = [{ id: randomUUID(), type: "grant", amount: 100, balance: 100, description: "新用户体验积分", createdAt: new Date().toISOString() }];

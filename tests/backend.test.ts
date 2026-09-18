@@ -48,6 +48,10 @@ test('commercial account foundation registers, authenticates, quotes and persist
     const registered = await post('/api/account/register', { email: 'creator@example.com', password: 'strong-pass-123' });
     assert.equal(registered.response.status, 200);
     assert.equal(registered.data.user.credits, 100);
+    const duplicate = await post('/api/account/register', { email: 'CREATOR@example.com', password: 'another-pass-123' });
+    assert.equal(duplicate.response.status, 409);
+    assert.equal(duplicate.data.error, '该邮箱已注册，请直接登录');
+    assert.equal(duplicate.data.code, 'ACCOUNT_ALREADY_REGISTERED');
     const loggedIn = await post('/api/account/login', { email: 'creator@example.com', password: 'strong-pass-123' });
     assert.equal(loggedIn.response.status, 200);
     const me = await (await fetch(backend.url + '/api/account/me', { headers: { Authorization: `Bearer ${loggedIn.data.token}` } })).json();

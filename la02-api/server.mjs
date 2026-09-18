@@ -39,6 +39,7 @@ const pool = new Pool({
 const text = (v) => String(v ?? '').trim();
 const now = () => new Date().toISOString();
 const json = (res, data, status = 200) => res.status(status).json(data);
+const alreadyRegistered = (res) => json(res, { error: '该邮箱已注册，请直接登录', code: 'ACCOUNT_ALREADY_REGISTERED' }, 409);
 const sha256 = (v) => crypto.createHash('sha256').update(v).digest('hex');
 const publicUser = (row) => {
   const balanceFen = Number(row?.balance_fen ?? Number(row?.credits || 0) * 10);
@@ -86,9 +87,9 @@ app.get('/api/health', async (_req, res) => {
 app.post('/api/account/send-code', async (req, res) => {
   const email = text(req.body?.email).toLowerCase();
   if (!/^\S+@\S+\.\S+$/.test(email)) return json(res, { error: '请输入有效的邮箱地址' }, 400);
-  if (!verificationTransport) return json(res, { error: '邮箱验证服务尚未配置，请联系管理员' }, 503);
   const existing = await pool.query('SELECT id FROM accounts WHERE email=$1', [email]);
-  if (existing.rows[0]) return json(res, { error: '该账号已存在，请直接登录' }, 409);
+  if (existing.rows[0]) return alreadyRegistered(res);
+  if (!verificationTransport) return json(res, { error: '邮箱验证服务尚未配置，请联系管理员' }, 503);
   await pool.query('CREATE TABLE IF NOT EXISTS email_verification_codes (email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, sent_at TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)');
   const previous = await pool.query('SELECT sent_at FROM email_verification_codes WHERE email=$1', [email]);
   if (previous.rows[0] && Date.now() - new Date(previous.rows[0].sent_at).getTime() < 60_000) return json(res, { error: '验证码已发送，请 60 秒后再试' }, 429);
@@ -102,6 +103,8 @@ app.post('/api/account/send-code', async (req, res) => {
 app.post('/api/account/register', async (req, res) => {
   const email = text(req.body?.email).toLowerCase(); const password = text(req.body?.password);
   if (!email || password.length < 8) return json(res, { error: '请输入有效邮箱和至少 8 位密码' }, 400);
+  const exists = await pool.query('SELECT id FROM accounts WHERE email=$1', [email]);
+  if (exists.rows[0]) return alreadyRegistered(res);
   const code = text(req.body?.verificationCode);
   if (!/^\d{6}$/.test(code)) return json(res, { error: '请输入 6 位邮箱验证码' }, 400);
   await pool.query('CREATE TABLE IF NOT EXISTS email_verification_codes (email TEXT PRIMARY KEY, code_hash TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, sent_at TIMESTAMPTZ NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)');
@@ -110,8 +113,6 @@ app.post('/api/account/register', async (req, res) => {
   if (!record || new Date(record.expires_at).getTime() < Date.now()) return json(res, { error: '验证码无效或已过期，请重新获取' }, 400);
   if (Number(record.attempts) >= 5) return json(res, { error: '验证码尝试次数过多，请重新获取' }, 429);
   if (record.code_hash !== sha256(code)) { await pool.query('UPDATE email_verification_codes SET attempts=attempts+1 WHERE email=$1', [email]); return json(res, { error: '验证码不正确' }, 400); }
-  const exists = await pool.query('SELECT id FROM accounts WHERE email=$1', [email]);
-  if (exists.rows[0]) return json(res, { error: '该账号已存在' }, 409);
   const id = crypto.randomUUID(); const salt = crypto.randomUUID();
   const hash = `${salt}:${crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256').toString('hex')}`;
   const created = now();
@@ -122,7 +123,11 @@ app.post('/api/account/register', async (req, res) => {
     await client.query('INSERT INTO ledger(id,account_id,type,amount,balance,description,created_at) VALUES($1,$2,$3,$4,$5,$6,$7)', [crypto.randomUUID(), id, 'grant', 50, 50, '新用户注册赠送', created]);
     await client.query('DELETE FROM email_verification_codes WHERE email=$1', [email]);
     await client.query('COMMIT');
-  } catch (error) { await client.query('ROLLBACK'); return json(res, { error: '注册未完成，请重试' }, 500); }
+  } catch (error) {
+    await client.query('ROLLBACK');
+    if (error?.code === '23505') return alreadyRegistered(res);
+    return json(res, { error: '注册未完成，请重试' }, 500);
+  }
   finally { client.release(); }
   return json(res, { user: publicUser({ id, email, balance_fen: 50 }) }, 201);
 });
