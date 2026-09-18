@@ -15,7 +15,7 @@ test('workbench orders, server history, ownership and logout', async()=>{
   const pool=new pg.Pool({options:`-c search_path=${schema}`});
   const files=mkdtempSync(path.join(tmpdir(),'tk-ui-')); let http;
   try {
-    mkdirSync(path.join(files,'payment'));writeFileSync(path.join(files,'payment/alipay-personal.jpg'),'fixture');
+    mkdirSync(path.join(files,'payment'));writeFileSync(path.join(files,'payment/alipay-personal.jpg'),'fixture');writeFileSync(path.join(files,'payment/wechat-personal.jpg'),'fixture');
     await pool.query(`CREATE TABLE accounts(id TEXT PRIMARY KEY,email TEXT,balance_fen INTEGER);
       CREATE TABLE sessions(token_hash TEXT PRIMARY KEY,account_id TEXT);
       CREATE TABLE orders(id TEXT PRIMARY KEY,account_id TEXT,provider TEXT,package_id TEXT,amount_fen INTEGER,credits INTEGER,status TEXT,created_at TIMESTAMPTZ);
@@ -35,10 +35,11 @@ test('workbench orders, server history, ownership and logout', async()=>{
     const base='http://127.0.0.1:'+http.address().port;
     const call=(url,body)=>fetch(base+url,{method:body?'POST':'GET',headers:{authorization:'Bearer test-token','content-type':'application/json'},body:body?JSON.stringify(body):undefined});
     assert.equal((await fetch(base+'/api/generations')).status,401);
-    const channels=await (await call('/api/billing/channels')).json();assert.equal(channels.channels.alipay.available,true);assert.equal(channels.channels.wechat.available,false);
+    const channels=await (await call('/api/billing/channels')).json();assert.equal(channels.channels.alipay.available,true);assert.equal(channels.channels.wechat.available,true);
     assert.equal((await call('/api/billing/orders',{provider:'alipay_personal',amountFen:199})).status,400);
-    assert.equal((await call('/api/billing/orders',{provider:'wechat_personal',amountFen:500})).status,503);
+    assert.equal((await call('/api/billing/orders',{provider:'wechat_personal',amountFen:500})).status,201);
     const order=await (await call('/api/billing/orders',{provider:'alipay_personal',amountFen:505})).json();assert.equal(order.order.amountFen,505);
+    const wechatOrder=await (await call('/api/billing/orders',{provider:'wechat_personal',amountFen:505})).json();assert.equal(wechatOrder.order.amountFen,505);assert.equal(wechatOrder.payment.qrUrl,'/payment/wechat-personal.jpg');
     assert.equal((await pool.query('SELECT balance_fen FROM accounts WHERE id=$1',['u'])).rows[0].balance_fen,123);
     const records=(await (await call('/api/generations')).json()).records;assert.equal(records.length,2);
     const success=records.find(r=>r.status==='success');assert.equal(success.product,'杯子');assert.equal(success.amountYuan,'0.20');assert.equal(success.content[0].title,'已生成内容');
