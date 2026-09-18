@@ -16,14 +16,14 @@ export function generationService(pool, generate, options = {}) {
     await pool.query(`CREATE TABLE IF NOT EXISTS generation_jobs (
       id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id), request_id TEXT NOT NULL,
       input_hash TEXT NOT NULL, status TEXT NOT NULL, duration TEXT NOT NULL, amount_fen INTEGER NOT NULL,
-      input_json JSONB, result_json JSONB, error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ,
+      input_json JSONB, result_json JSONB, error TEXT, queue_order BIGSERIAL NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), finished_at TIMESTAMPTZ,
       UNIQUE(account_id,request_id))`);
     await pool.query("ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS input_json JSONB, ADD COLUMN IF NOT EXISTS region TEXT NOT NULL DEFAULT '', ADD COLUMN IF NOT EXISTS product TEXT NOT NULL DEFAULT ''");
+    await pool.query("ALTER TABLE generation_jobs ADD COLUMN IF NOT EXISTS queue_order BIGSERIAL");
   }
   async function queueStats(row) {
     if (row.status !== 'queued') return { queuePosition: 0, queueAhead: 0 };
-    const result = await pool.query(`SELECT count(*)::int AS count FROM generation_jobs
-      WHERE status='queued' AND (created_at < $1 OR (created_at = $1 AND id <= $2))`, [row.created_at, row.id]);
+    const result = await pool.query("SELECT count(*)::int AS count FROM generation_jobs WHERE status='queued' AND queue_order <= $1", [row.queue_order]);
     const queuePosition = Number(result.rows[0]?.count || 1);
     return { queuePosition, queueAhead: Math.max(0, queuePosition - 1) };
   }
@@ -68,7 +68,7 @@ export function generationService(pool, generate, options = {}) {
   async function claimNext() {
     return tx(async c => {
       const row = (await c.query(`SELECT id,input_json FROM generation_jobs
-        WHERE status='queued' ORDER BY created_at ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED`)).rows[0];
+        WHERE status='queued' ORDER BY queue_order ASC LIMIT 1 FOR UPDATE SKIP LOCKED`)).rows[0];
       if (!row) return null;
       await c.query("UPDATE generation_jobs SET status='running' WHERE id=$1 AND status='queued'", [row.id]);
       return row;
