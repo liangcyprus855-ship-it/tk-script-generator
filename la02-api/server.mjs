@@ -50,6 +50,33 @@ const verificationTransport = env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS
   : null;
 const verificationCode = () => String(crypto.randomInt(0, 1000000)).padStart(6, '0');
 const verificationTtlMs = 15 * 60_000;
+const maskEmail = (email) => { const [name, domain] = String(email || '').split('@'); return domain ? `${name.slice(0, 2)}***@${domain}` : '***'; };
+async function sendVerificationMail(email, code) {
+  const message = {
+    from: env.SMTP_FROM || env.SMTP_USER,
+    to: email,
+    envelope: { from: env.SMTP_USER, to: email },
+    subject: 'TK 脚本生成器邮箱验证码',
+    text: `你的注册验证码是 ${code}，15 分钟内有效。如非本人操作请忽略。`,
+  };
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const info = await verificationTransport.sendMail(message);
+      const accepted = Array.isArray(info.accepted) && info.accepted.some((value) => String(value).toLowerCase() === email);
+      const rejected = Array.isArray(info.rejected) && info.rejected.length > 0;
+      if (!accepted || rejected) throw Object.assign(new Error('SMTP 未接受验证码收件地址'), { code: 'SMTP_RECIPIENT_REJECTED', responseCode: info.response });
+      console.log(JSON.stringify({ event: 'verification_mail_accepted', email: maskEmail(email), messageId: info.messageId || '', response: info.response || '' }));
+      return info;
+    } catch (error) {
+      lastError = error;
+      if (!['ECONNECTION', 'ETIMEDOUT', 'ESOCKET', 'ECONNRESET', 'ETLS'].includes(error?.code)) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  console.error(JSON.stringify({ event: 'verification_mail_failed', email: maskEmail(email), code: lastError?.code || 'UNKNOWN', responseCode: lastError?.responseCode || '', command: lastError?.command || '' }));
+  throw lastError || new Error('SMTP 发信失败');
+}
 const authToken = (req) => text(req.get('authorization')).replace(/^Bearer\s+/i, '');
 
 function checkPassword(password, stored) {
@@ -99,7 +126,7 @@ app.post('/api/account/send-code', async (req, res) => {
   const sentAt = now();
   const expiresAt = new Date(Date.now() + verificationTtlMs).toISOString();
   await pool.query('INSERT INTO email_verification_codes(email,code_hash,expires_at,sent_at,attempts,previous_code_hash,previous_expires_at) VALUES($1,$2,$3,$4,0,NULL,NULL) ON CONFLICT(email) DO UPDATE SET previous_code_hash=email_verification_codes.code_hash,previous_expires_at=email_verification_codes.expires_at,code_hash=EXCLUDED.code_hash,expires_at=EXCLUDED.expires_at,sent_at=EXCLUDED.sent_at,attempts=0', [email, sha256(code), expiresAt, sentAt]);
-  try { await verificationTransport.sendMail({ from: env.SMTP_FROM || env.SMTP_USER, to: email, subject: 'TK 脚本生成器邮箱验证码', text: `你的注册验证码是 ${code}，15 分钟内有效。如非本人操作请忽略。` }); }
+  try { await sendVerificationMail(email, code); }
   catch (error) { await pool.query('DELETE FROM email_verification_codes WHERE email=$1', [email]); return json(res, { error: '验证码邮件发送失败，请稍后重试' }, 502); }
   return json(res, { message: '验证码已发送，请查收邮箱' });
 });
